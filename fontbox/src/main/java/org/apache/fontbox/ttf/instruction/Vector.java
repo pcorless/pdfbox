@@ -56,6 +56,35 @@ public class Vector
     }
 
     /**
+     * Builds a unit vector in F2Dot14 from a coordinate delta. A zero-length delta falls back to the
+     * x axis. (The square-root normalisation is the one place the interpreter steps outside integer
+     * math; it only affects a direction vector, and is verified by the golden tests.)
+     *
+     * @param dx the x delta
+     * @param dy the y delta
+     * @return the normalised unit vector
+     */
+    public static Vector normalize(int dx, int dy)
+    {
+        double length = Math.hypot(dx, dy);
+        if (length == 0)
+        {
+            return xAxis();
+        }
+        int ux = (int) Math.round(dx / length * Fixed.ONE_F2DOT14);
+        int uy = (int) Math.round(dy / length * Fixed.ONE_F2DOT14);
+        return new Vector(ux, uy);
+    }
+
+    /**
+     * @return this vector rotated 90 degrees counter-clockwise, i.e. {@code (-y, x)}
+     */
+    public Vector perpendicular()
+    {
+        return new Vector(-y, x);
+    }
+
+    /**
      * @return the x component in F2Dot14
      */
     public int getX()

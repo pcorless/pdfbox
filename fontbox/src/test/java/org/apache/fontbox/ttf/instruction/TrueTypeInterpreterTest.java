@@ -199,9 +199,9 @@ class TrueTypeInterpreterTest
     @Test
     void testUnsupportedOpcodeThrows()
     {
-        // 0x00 (SVTCA) is a point-vector op not implemented until Phase 3
+        // 0x0F (ISECT) is not yet implemented; unimplemented opcodes must throw, not no-op
         assertThrows(HintingException.class,
-                () -> interpreter().executeProgram(new byte[] { 0x00 }, 16));
+                () -> interpreter().executeProgram(new byte[] { 0x0F }, 16));
     }
 
     @Test

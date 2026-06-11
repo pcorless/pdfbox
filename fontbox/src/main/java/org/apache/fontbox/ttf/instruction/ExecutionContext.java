@@ -236,6 +236,102 @@ public class ExecutionContext
         this.unitsPerEm = value;
     }
 
+    // --- projection / freedom vector math --------------------------------
+
+    /**
+     * Dot product of two F2Dot14 vectors (or a coordinate against an F2Dot14 vector), returning the
+     * result shifted back down by 14 bits with rounding. This is the projection primitive: projecting
+     * an F26Dot6 coordinate onto an F2Dot14 unit vector yields an F26Dot6 distance.
+     *
+     * @param ax first vector x
+     * @param ay first vector y
+     * @param bx second vector x (F2Dot14)
+     * @param by second vector y (F2Dot14)
+     * @return the rounded dot product
+     */
+    public static int dot14(int ax, int ay, int bx, int by)
+    {
+        long product = (long) ax * bx + (long) ay * by;
+        return (int) ((product + 0x2000) >> 14);
+    }
+
+    /**
+     * Projects a coordinate onto the projection vector.
+     *
+     * @param x the x coordinate in F26Dot6
+     * @param y the y coordinate in F26Dot6
+     * @return the projected distance in F26Dot6
+     */
+    public int project(int x, int y)
+    {
+        Vector pv = graphicsState.getProjectionVector();
+        return dot14(x, y, pv.getX(), pv.getY());
+    }
+
+    /**
+     * Projects a coordinate onto the dual projection vector (used to measure original, unhinted
+     * positions).
+     *
+     * @param x the x coordinate in F26Dot6
+     * @param y the y coordinate in F26Dot6
+     * @return the projected distance in F26Dot6
+     */
+    public int dualProject(int x, int y)
+    {
+        Vector dv = graphicsState.getDualProjectionVector();
+        return dot14(x, y, dv.getX(), dv.getY());
+    }
+
+    /**
+     * Returns the current (hinted) projected distance from point {@code p0} in {@code zone0} to point
+     * {@code p1} in {@code zone1}, measured along the projection vector.
+     */
+    public int projectedDistance(Zone zone1, int p1, Zone zone0, int p0)
+    {
+        return project(zone1.getCurrentX()[p1] - zone0.getCurrentX()[p0],
+                zone1.getCurrentY()[p1] - zone0.getCurrentY()[p0]);
+    }
+
+    /**
+     * Returns the original (unhinted) projected distance from point {@code p0} in {@code zone0} to
+     * point {@code p1} in {@code zone1}, measured along the dual projection vector.
+     */
+    public int dualProjectedDistance(Zone zone1, int p1, Zone zone0, int p0)
+    {
+        return dualProject(zone1.getOriginalX()[p1] - zone0.getOriginalX()[p0],
+                zone1.getOriginalY()[p1] - zone0.getOriginalY()[p0]);
+    }
+
+    /**
+     * Moves a point by the given projected distance along the freedom vector, touching the axes the
+     * freedom vector acts on. The displacement is {@code distance * freedom / (freedom . projection)},
+     * which reduces to {@code distance} when both vectors are the same axis.
+     *
+     * @param zone the zone holding the point
+     * @param point the point index
+     * @param distance the projected distance to move, in F26Dot6
+     */
+    public void movePoint(Zone zone, int point, int distance)
+    {
+        Vector fv = graphicsState.getFreedomVector();
+        Vector pv = graphicsState.getProjectionVector();
+        int fDotP = dot14(fv.getX(), fv.getY(), pv.getX(), pv.getY());
+        if (fDotP == 0)
+        {
+            fDotP = Fixed.ONE_F2DOT14;
+        }
+        if (fv.getX() != 0)
+        {
+            zone.getCurrentX()[point] += Fixed.mulDiv(distance, fv.getX(), fDotP);
+            zone.getTouchedX()[point] = true;
+        }
+        if (fv.getY() != 0)
+        {
+            zone.getCurrentY()[point] += Fixed.mulDiv(distance, fv.getY(), fDotP);
+            zone.getTouchedY()[point] = true;
+        }
+    }
+
     // --- execution cursor and call state ---------------------------------
 
     /** @return the current bytecode stream */

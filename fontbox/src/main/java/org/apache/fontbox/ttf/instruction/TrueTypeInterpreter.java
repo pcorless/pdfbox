@@ -392,6 +392,13 @@ public class TrueTypeInterpreter
         installStateOps();
         installStorageAndCvtOps();
         installMiscOps();
+        installVectorOps();
+        installRoundOps();
+        installPointOps();
+        installInterpolationOps();
+        installMeasureOps();
+        installDeltaOps();
+        installFlipOps();
     }
 
     private void installPushOps()
@@ -570,15 +577,19 @@ public class TrueTypeInterpreter
         dispatch[0x7C] = roundState(GraphicsState.ROUND_UP_TO_GRID);     // RUTG
         dispatch[0x7D] = roundState(GraphicsState.ROUND_DOWN_TO_GRID);   // RDTG
         dispatch[0x7A] = roundState(GraphicsState.ROUND_OFF);            // ROFF
-        dispatch[0x76] = ctx ->                                          // SROUND
+        dispatch[0x76] = ctx -> ctx.getGraphicsState().setSuperRound(Fixed.ONE, ctx.pop()); // SROUND
+        // S45ROUND: grid period is the 45-degree diagonal, sqrt(2)/2 px ~= 45 in F26Dot6
+        dispatch[0x77] = ctx -> ctx.getGraphicsState().setSuperRound(45, ctx.pop());        // S45ROUND
+        dispatch[0x13] = ctx -> ctx.getGraphicsState().setZp0(ctx.pop());            // SZP0
+        dispatch[0x14] = ctx -> ctx.getGraphicsState().setZp1(ctx.pop());            // SZP1
+        dispatch[0x15] = ctx -> ctx.getGraphicsState().setZp2(ctx.pop());            // SZP2
+        dispatch[0x16] = ctx ->                                                      // SZPS
         {
-            ctx.pop();
-            ctx.getGraphicsState().setRoundState(GraphicsState.ROUND_SUPER);
-        };
-        dispatch[0x77] = ctx ->                                          // S45ROUND
-        {
-            ctx.pop();
-            ctx.getGraphicsState().setRoundState(GraphicsState.ROUND_SUPER_45);
+            int zone = ctx.pop();
+            GraphicsState gs = ctx.getGraphicsState();
+            gs.setZp0(zone);
+            gs.setZp1(zone);
+            gs.setZp2(zone);
         };
     }
 
@@ -633,6 +644,752 @@ public class TrueTypeInterpreter
             }
             ctx.push(result);
         };
+    }
+
+    // --- vector setters --------------------------------------------------
+
+    private void installVectorOps()
+    {
+        dispatch[0x00] = ctx -> setProjAndFreedomAxis(ctx, false); // SVTCA[0] y
+        dispatch[0x01] = ctx -> setProjAndFreedomAxis(ctx, true);  // SVTCA[1] x
+        dispatch[0x02] = ctx -> setProjectionAxis(ctx, false);     // SPVTCA[0] y
+        dispatch[0x03] = ctx -> setProjectionAxis(ctx, true);      // SPVTCA[1] x
+        dispatch[0x04] = ctx -> setFreedomAxis(ctx, false);        // SFVTCA[0] y
+        dispatch[0x05] = ctx -> setFreedomAxis(ctx, true);         // SFVTCA[1] x
+        dispatch[0x06] = ctx -> setProjectionToLine(ctx, false);   // SPVTL[0] parallel
+        dispatch[0x07] = ctx -> setProjectionToLine(ctx, true);    // SPVTL[1] perpendicular
+        dispatch[0x08] = ctx -> setFreedomToLine(ctx, false);      // SFVTL[0] parallel
+        dispatch[0x09] = ctx -> setFreedomToLine(ctx, true);       // SFVTL[1] perpendicular
+        dispatch[0x86] = ctx -> setDualProjectionToLine(ctx, false); // SDPVTL[0]
+        dispatch[0x87] = ctx -> setDualProjectionToLine(ctx, true);  // SDPVTL[1]
+        dispatch[0x0E] = ctx ->                                    // SFVTPV
+        {
+            Vector pv = ctx.getGraphicsState().getProjectionVector();
+            ctx.getGraphicsState().getFreedomVector().set(pv.getX(), pv.getY());
+        };
+        dispatch[0x0A] = ctx ->                                    // SPVFS
+        {
+            int y = ctx.pop();
+            int x = ctx.pop();
+            ctx.getGraphicsState().getProjectionVector().set(x, y);
+            ctx.getGraphicsState().getDualProjectionVector().set(x, y);
+        };
+        dispatch[0x0B] = ctx ->                                    // SFVFS
+        {
+            int y = ctx.pop();
+            int x = ctx.pop();
+            ctx.getGraphicsState().getFreedomVector().set(x, y);
+        };
+        dispatch[0x0C] = ctx ->                                    // GPV
+        {
+            Vector pv = ctx.getGraphicsState().getProjectionVector();
+            ctx.push(pv.getX());
+            ctx.push(pv.getY());
+        };
+        dispatch[0x0D] = ctx ->                                    // GFV
+        {
+            Vector fv = ctx.getGraphicsState().getFreedomVector();
+            ctx.push(fv.getX());
+            ctx.push(fv.getY());
+        };
+    }
+
+    private static void setProjAndFreedomAxis(ExecutionContext ctx, boolean xAxis)
+    {
+        setProjectionAxis(ctx, xAxis);
+        setFreedomAxis(ctx, xAxis);
+    }
+
+    private static void setProjectionAxis(ExecutionContext ctx, boolean xAxis)
+    {
+        int x = xAxis ? Fixed.ONE_F2DOT14 : 0;
+        int y = xAxis ? 0 : Fixed.ONE_F2DOT14;
+        ctx.getGraphicsState().getProjectionVector().set(x, y);
+        ctx.getGraphicsState().getDualProjectionVector().set(x, y);
+    }
+
+    private static void setFreedomAxis(ExecutionContext ctx, boolean xAxis)
+    {
+        int x = xAxis ? Fixed.ONE_F2DOT14 : 0;
+        int y = xAxis ? 0 : Fixed.ONE_F2DOT14;
+        ctx.getGraphicsState().getFreedomVector().set(x, y);
+    }
+
+    private void setProjectionToLine(ExecutionContext ctx, boolean perpendicular)
+    {
+        Vector[] v = lineVectors(ctx, perpendicular);
+        ctx.getGraphicsState().getProjectionVector().set(v[0].getX(), v[0].getY());
+        ctx.getGraphicsState().getDualProjectionVector().set(v[1].getX(), v[1].getY());
+    }
+
+    private void setFreedomToLine(ExecutionContext ctx, boolean perpendicular)
+    {
+        Vector[] v = lineVectors(ctx, perpendicular);
+        ctx.getGraphicsState().getFreedomVector().set(v[0].getX(), v[0].getY());
+    }
+
+    private void setDualProjectionToLine(ExecutionContext ctx, boolean perpendicular)
+    {
+        Vector[] v = lineVectors(ctx, perpendicular);
+        ctx.getGraphicsState().getProjectionVector().set(v[0].getX(), v[0].getY());
+        ctx.getGraphicsState().getDualProjectionVector().set(v[1].getX(), v[1].getY());
+    }
+
+    /**
+     * Pops two point numbers and returns {current-based, original-based} unit vectors along (or
+     * perpendicular to) the line between them. The first point is taken from zp2, the second from zp1.
+     */
+    private Vector[] lineVectors(ExecutionContext ctx, boolean perpendicular)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        int p2 = ctx.pop();
+        int p1 = ctx.pop();
+        Zone z1 = ctx.getZone(gs.getZp2());
+        Zone z2 = ctx.getZone(gs.getZp1());
+        Vector current = Vector.normalize(z2.getCurrentX()[p2] - z1.getCurrentX()[p1],
+                z2.getCurrentY()[p2] - z1.getCurrentY()[p1]);
+        Vector original = Vector.normalize(z2.getOriginalX()[p2] - z1.getOriginalX()[p1],
+                z2.getOriginalY()[p2] - z1.getOriginalY()[p1]);
+        if (perpendicular)
+        {
+            current = current.perpendicular();
+            original = original.perpendicular();
+        }
+        return new Vector[] { current, original };
+    }
+
+    // --- rounding opcodes ------------------------------------------------
+
+    private void installRoundOps()
+    {
+        for (int k = 0; k < 4; k++)
+        {
+            dispatch[0x68 + k] = ctx -> ctx.push(ctx.getGraphicsState().round(ctx.pop())); // ROUND[ab]
+            dispatch[0x6C + k] = ctx -> ctx.push(ctx.pop());                                // NROUND[ab]
+        }
+    }
+
+    // --- point movement --------------------------------------------------
+
+    private void installPointOps()
+    {
+        dispatch[0x2E] = ctx -> doMDAP(ctx, false);  // MDAP[0] no round
+        dispatch[0x2F] = ctx -> doMDAP(ctx, true);   // MDAP[1] round
+        dispatch[0x3E] = ctx -> doMIAP(ctx, false);  // MIAP[0] no round
+        dispatch[0x3F] = ctx -> doMIAP(ctx, true);   // MIAP[1] round + cut-in
+        dispatch[0x3A] = ctx -> doMSIRP(ctx, false); // MSIRP[0]
+        dispatch[0x3B] = ctx -> doMSIRP(ctx, true);  // MSIRP[1] set rp0
+        dispatch[0x3C] = this::doAlignRp;            // ALIGNRP
+        dispatch[0x27] = this::doAlignPts;           // ALIGNPTS
+        dispatch[0x29] = this::doUtp;                // UTP
+        dispatch[0x38] = this::doShpix;              // SHPIX
+        dispatch[0x32] = ctx -> doShp(ctx, false);   // SHP[0] rp2/zp1
+        dispatch[0x33] = ctx -> doShp(ctx, true);    // SHP[1] rp1/zp0
+        dispatch[0x34] = ctx -> doShc(ctx, false);   // SHC[0]
+        dispatch[0x35] = ctx -> doShc(ctx, true);    // SHC[1]
+        dispatch[0x36] = ctx -> doShz(ctx, false);   // SHZ[0]
+        dispatch[0x37] = ctx -> doShz(ctx, true);    // SHZ[1]
+        for (int op = 0xC0; op <= 0xDF; op++)
+        {
+            final int code = op;
+            dispatch[op] = ctx -> doMDRP(ctx, code); // MDRP[abcde]
+        }
+        for (int op = 0xE0; op <= 0xFF; op++)
+        {
+            final int code = op;
+            dispatch[op] = ctx -> doMIRP(ctx, code); // MIRP[abcde]
+        }
+    }
+
+    private void doMDAP(ExecutionContext ctx, boolean round)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        int point = ctx.pop();
+        Zone zone = ctx.getZone(gs.getZp0());
+        int cur = ctx.project(zone.getCurrentX()[point], zone.getCurrentY()[point]);
+        int distance = round ? gs.round(cur) : cur;
+        ctx.movePoint(zone, point, distance - cur);
+        gs.setRp0(point);
+        gs.setRp1(point);
+    }
+
+    private void doMIAP(ExecutionContext ctx, boolean round)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        int cvtIndex = ctx.pop();
+        int point = ctx.pop();
+        Zone zone = ctx.getZone(gs.getZp0());
+        int[] cvt = ctx.getControlValues();
+        int value = cvtIndex >= 0 && cvtIndex < cvt.length ? cvt[cvtIndex] : 0;
+
+        if (gs.getZp0() == 0)
+        {
+            // twilight point: establish its position from the control value along the projection
+            Vector pv = gs.getProjectionVector();
+            zone.getOriginalX()[point] = Fixed.mul14(value, pv.getX());
+            zone.getOriginalY()[point] = Fixed.mul14(value, pv.getY());
+            zone.getCurrentX()[point] = zone.getOriginalX()[point];
+            zone.getCurrentY()[point] = zone.getOriginalY()[point];
+        }
+        int cur = ctx.project(zone.getCurrentX()[point], zone.getCurrentY()[point]);
+        if (round)
+        {
+            if (Math.abs(value - cur) > gs.getControlValueCutIn())
+            {
+                value = cur;
+            }
+            value = gs.round(value);
+        }
+        ctx.movePoint(zone, point, value - cur);
+        gs.setRp0(point);
+        gs.setRp1(point);
+    }
+
+    private void doMSIRP(ExecutionContext ctx, boolean setRp0)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        int distance = ctx.pop();
+        int point = ctx.pop();
+        Zone zp1 = ctx.getZone(gs.getZp1());
+        Zone zp0 = ctx.getZone(gs.getZp0());
+        int rp0 = gs.getRp0();
+        int curDist = ctx.projectedDistance(zp1, point, zp0, rp0);
+        ctx.movePoint(zp1, point, distance - curDist);
+        gs.setRp1(rp0);
+        gs.setRp2(point);
+        if (setRp0)
+        {
+            gs.setRp0(point);
+        }
+    }
+
+    private void doAlignRp(ExecutionContext ctx)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        Zone zp1 = ctx.getZone(gs.getZp1());
+        Zone zp0 = ctx.getZone(gs.getZp0());
+        int rp0 = gs.getRp0();
+        forEachLoopPoint(ctx, point ->
+        {
+            int dist = ctx.projectedDistance(zp1, point, zp0, rp0);
+            ctx.movePoint(zp1, point, -dist);
+        });
+    }
+
+    private void doAlignPts(ExecutionContext ctx)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        int p2 = ctx.pop();
+        int p1 = ctx.pop();
+        Zone zp1 = ctx.getZone(gs.getZp1());
+        Zone zp0 = ctx.getZone(gs.getZp0());
+        int distance = ctx.projectedDistance(zp0, p1, zp1, p2);
+        // move both points to the midpoint of their projected positions
+        ctx.movePoint(zp1, p2, distance / 2);
+        ctx.movePoint(zp0, p1, -(distance - distance / 2));
+    }
+
+    private void doUtp(ExecutionContext ctx)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        Zone zone = ctx.getZone(gs.getZp0());
+        Vector fv = gs.getFreedomVector();
+        int point = ctx.pop();
+        if (fv.getX() != 0)
+        {
+            zone.getTouchedX()[point] = false;
+        }
+        if (fv.getY() != 0)
+        {
+            zone.getTouchedY()[point] = false;
+        }
+    }
+
+    private void doShpix(ExecutionContext ctx)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        int amount = ctx.pop();
+        Zone zp2 = ctx.getZone(gs.getZp2());
+        forEachLoopPoint(ctx, point -> ctx.movePoint(zp2, point, amount));
+    }
+
+    private void doShp(ExecutionContext ctx, boolean useRp1)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        int shift = referenceShift(ctx, useRp1);
+        Zone zp2 = ctx.getZone(gs.getZp2());
+        forEachLoopPoint(ctx, point -> ctx.movePoint(zp2, point, shift));
+    }
+
+    private void doShc(ExecutionContext ctx, boolean useRp1)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        int shift = referenceShift(ctx, useRp1);
+        int contour = ctx.pop();
+        Zone zp2 = ctx.getZone(gs.getZp2());
+        int[] ends = zp2.getContourEnds();
+        if (contour < 0 || contour >= ends.length)
+        {
+            return;
+        }
+        int start = contour == 0 ? 0 : ends[contour - 1] + 1;
+        for (int i = start; i <= ends[contour]; i++)
+        {
+            ctx.movePoint(zp2, i, shift);
+        }
+    }
+
+    private void doShz(ExecutionContext ctx, boolean useRp1)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        int shift = referenceShift(ctx, useRp1);
+        int zoneNumber = ctx.pop();
+        Zone zone = ctx.getZone(zoneNumber);
+        for (int i = 0; i < zone.getPointCount(); i++)
+        {
+            ctx.movePoint(zone, i, shift);
+        }
+    }
+
+    /** The projected distance a reference point (rp1 in zp0, or rp2 in zp1) has been moved. */
+    private static int referenceShift(ExecutionContext ctx, boolean useRp1)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        int ref;
+        Zone zone;
+        if (useRp1)
+        {
+            ref = gs.getRp1();
+            zone = ctx.getZone(gs.getZp0());
+        }
+        else
+        {
+            ref = gs.getRp2();
+            zone = ctx.getZone(gs.getZp1());
+        }
+        return ctx.project(zone.getCurrentX()[ref] - zone.getOriginalX()[ref],
+                zone.getCurrentY()[ref] - zone.getOriginalY()[ref]);
+    }
+
+    private void doMDRP(ExecutionContext ctx, int op)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        int flags = op & 0x1F;
+        boolean setRp0 = (flags & 0x10) != 0;
+        boolean round = (flags & 0x08) != 0;
+        boolean useMin = (flags & 0x04) != 0;
+        int point = ctx.pop();
+        Zone zp1 = ctx.getZone(gs.getZp1());
+        Zone zp0 = ctx.getZone(gs.getZp0());
+        int rp0 = gs.getRp0();
+
+        int orgDist = ctx.dualProjectedDistance(zp1, point, zp0, rp0);
+        orgDist = applySingleWidth(gs, orgDist);
+        int distance = round ? gs.round(orgDist) : orgDist;
+        distance = applyMinimumDistance(gs, useMin, orgDist, distance);
+
+        int curDist = ctx.projectedDistance(zp1, point, zp0, rp0);
+        ctx.movePoint(zp1, point, distance - curDist);
+        gs.setRp1(rp0);
+        gs.setRp2(point);
+        if (setRp0)
+        {
+            gs.setRp0(point);
+        }
+    }
+
+    private void doMIRP(ExecutionContext ctx, int op)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        int flags = op & 0x1F;
+        boolean setRp0 = (flags & 0x10) != 0;
+        boolean round = (flags & 0x08) != 0;
+        boolean useMin = (flags & 0x04) != 0;
+        int point = ctx.pop();
+        int cvtIndex = ctx.pop();
+        int[] cvt = ctx.getControlValues();
+        int cvtValue = cvtIndex >= 0 && cvtIndex < cvt.length ? cvt[cvtIndex] : 0;
+        cvtValue = applySingleWidth(gs, cvtValue);
+
+        Zone zp1 = ctx.getZone(gs.getZp1());
+        Zone zp0 = ctx.getZone(gs.getZp0());
+        int rp0 = gs.getRp0();
+        int orgDist = ctx.dualProjectedDistance(zp1, point, zp0, rp0);
+
+        // auto-flip the control value to match the sign of the original distance
+        if (gs.isAutoFlip() && (orgDist ^ cvtValue) < 0)
+        {
+            cvtValue = -cvtValue;
+        }
+        int distance;
+        if (round)
+        {
+            // the control value cut-in only applies when both points are in the same zone
+            if (gs.getZp0() == gs.getZp1()
+                    && Math.abs(cvtValue - orgDist) > gs.getControlValueCutIn())
+            {
+                cvtValue = orgDist;
+            }
+            distance = gs.round(cvtValue);
+        }
+        else
+        {
+            distance = cvtValue;
+        }
+        distance = applyMinimumDistance(gs, useMin, orgDist, distance);
+
+        int curDist = ctx.projectedDistance(zp1, point, zp0, rp0);
+        ctx.movePoint(zp1, point, distance - curDist);
+        gs.setRp1(rp0);
+        gs.setRp2(point);
+        if (setRp0)
+        {
+            gs.setRp0(point);
+        }
+    }
+
+    private static int applySingleWidth(GraphicsState gs, int distance)
+    {
+        if (Math.abs(distance - gs.getSingleWidthValue()) < gs.getSingleWidthCutIn())
+        {
+            return distance >= 0 ? gs.getSingleWidthValue() : -gs.getSingleWidthValue();
+        }
+        return distance;
+    }
+
+    private static int applyMinimumDistance(GraphicsState gs, boolean useMin, int orgDist,
+            int distance)
+    {
+        if (!useMin)
+        {
+            return distance;
+        }
+        int md = gs.getMinimumDistance();
+        if (orgDist >= 0)
+        {
+            return distance < md ? md : distance;
+        }
+        return distance > -md ? -md : distance;
+    }
+
+    // --- interpolation ---------------------------------------------------
+
+    private void installInterpolationOps()
+    {
+        dispatch[0x30] = ctx -> doIup(ctx, false); // IUP[0] y
+        dispatch[0x31] = ctx -> doIup(ctx, true);  // IUP[1] x
+        dispatch[0x39] = this::doIp;               // IP
+    }
+
+    private void doIup(ExecutionContext ctx, boolean xAxis)
+    {
+        // IUP always operates on the glyph zone, directly on the x or y coordinate
+        Zone zone = ctx.getZone(1);
+        int[] cur = xAxis ? zone.getCurrentX() : zone.getCurrentY();
+        int[] org = xAxis ? zone.getOriginalX() : zone.getOriginalY();
+        boolean[] touched = xAxis ? zone.getTouchedX() : zone.getTouchedY();
+        int[] ends = zone.getContourEnds();
+        int start = 0;
+        for (int end : ends)
+        {
+            interpolateContour(cur, org, touched, start, end);
+            start = end + 1;
+        }
+    }
+
+    private static void interpolateContour(int[] cur, int[] org, boolean[] touched, int start,
+            int end)
+    {
+        if (end < start)
+        {
+            return;
+        }
+        int firstTouched = -1;
+        int touchedCount = 0;
+        for (int i = start; i <= end; i++)
+        {
+            if (touched[i])
+            {
+                if (firstTouched < 0)
+                {
+                    firstTouched = i;
+                }
+                touchedCount++;
+            }
+        }
+        if (touchedCount == 0)
+        {
+            return;
+        }
+        if (touchedCount == 1)
+        {
+            int delta = cur[firstTouched] - org[firstTouched];
+            if (delta != 0)
+            {
+                for (int i = start; i <= end; i++)
+                {
+                    if (i != firstTouched)
+                    {
+                        cur[i] = org[i] + delta;
+                    }
+                }
+            }
+            return;
+        }
+        // walk the contour cyclically, interpolating the untouched run between each touched pair
+        int t1 = firstTouched;
+        int seen = 0;
+        for (int step = 1; step <= end - start + 1 && seen < touchedCount; step++)
+        {
+            int i = start + (firstTouched - start + step) % (end - start + 1);
+            if (touched[i])
+            {
+                int u = t1 + 1 > end ? start : t1 + 1;
+                while (u != i)
+                {
+                    interpolatePoint(cur, org, t1, i, u);
+                    u = u + 1 > end ? start : u + 1;
+                }
+                t1 = i;
+                seen++;
+            }
+        }
+    }
+
+    private static void interpolatePoint(int[] cur, int[] org, int t1, int t2, int u)
+    {
+        int orgLo;
+        int orgHi;
+        int curLo;
+        int curHi;
+        if (org[t1] <= org[t2])
+        {
+            orgLo = org[t1];
+            curLo = cur[t1];
+            orgHi = org[t2];
+            curHi = cur[t2];
+        }
+        else
+        {
+            orgLo = org[t2];
+            curLo = cur[t2];
+            orgHi = org[t1];
+            curHi = cur[t1];
+        }
+        if (org[u] <= orgLo)
+        {
+            cur[u] = org[u] + (curLo - orgLo);
+        }
+        else if (org[u] >= orgHi)
+        {
+            cur[u] = org[u] + (curHi - orgHi);
+        }
+        else if (orgHi == orgLo)
+        {
+            cur[u] = org[u] + (curLo - orgLo);
+        }
+        else
+        {
+            cur[u] = curLo + Fixed.mulDiv(org[u] - orgLo, curHi - curLo, orgHi - orgLo);
+        }
+    }
+
+    private void doIp(ExecutionContext ctx)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        Zone z0 = ctx.getZone(gs.getZp0());
+        Zone z1 = ctx.getZone(gs.getZp1());
+        Zone z2 = ctx.getZone(gs.getZp2());
+        int rp1 = gs.getRp1();
+        int rp2 = gs.getRp2();
+        int curRp1 = ctx.project(z0.getCurrentX()[rp1], z0.getCurrentY()[rp1]);
+        int orgRp1 = ctx.dualProject(z0.getOriginalX()[rp1], z0.getOriginalY()[rp1]);
+        int curRp2 = ctx.project(z1.getCurrentX()[rp2], z1.getCurrentY()[rp2]);
+        int orgRp2 = ctx.dualProject(z1.getOriginalX()[rp2], z1.getOriginalY()[rp2]);
+        int orgRange = orgRp2 - orgRp1;
+        int curRange = curRp2 - curRp1;
+        forEachLoopPoint(ctx, point ->
+        {
+            int orgP = ctx.dualProject(z2.getOriginalX()[point], z2.getOriginalY()[point]);
+            int curP = ctx.project(z2.getCurrentX()[point], z2.getCurrentY()[point]);
+            int newP;
+            if (orgRange == 0)
+            {
+                newP = curRp1 + (orgP - orgRp1);
+            }
+            else
+            {
+                newP = curRp1 + Fixed.mulDiv(orgP - orgRp1, curRange, orgRange);
+            }
+            ctx.movePoint(z2, point, newP - curP);
+        });
+    }
+
+    // --- measurement -----------------------------------------------------
+
+    private void installMeasureOps()
+    {
+        dispatch[0x46] = ctx -> doGc(ctx, false); // GC[0] current
+        dispatch[0x47] = ctx -> doGc(ctx, true);  // GC[1] original
+        dispatch[0x48] = this::doScfs;            // SCFS
+        dispatch[0x49] = ctx -> doMd(ctx, false); // MD[0] grid-fitted
+        dispatch[0x4A] = ctx -> doMd(ctx, true);  // MD[1] original
+    }
+
+    private void doGc(ExecutionContext ctx, boolean original)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        Zone zone = ctx.getZone(gs.getZp2());
+        int point = ctx.pop();
+        if (original)
+        {
+            ctx.push(ctx.dualProject(zone.getOriginalX()[point], zone.getOriginalY()[point]));
+        }
+        else
+        {
+            ctx.push(ctx.project(zone.getCurrentX()[point], zone.getCurrentY()[point]));
+        }
+    }
+
+    private void doScfs(ExecutionContext ctx)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        int value = ctx.pop();
+        int point = ctx.pop();
+        Zone zone = ctx.getZone(gs.getZp2());
+        int cur = ctx.project(zone.getCurrentX()[point], zone.getCurrentY()[point]);
+        ctx.movePoint(zone, point, value - cur);
+    }
+
+    private void doMd(ExecutionContext ctx, boolean original)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        int p2 = ctx.pop();
+        int p1 = ctx.pop();
+        Zone zp0 = ctx.getZone(gs.getZp0());
+        Zone zp1 = ctx.getZone(gs.getZp1());
+        if (original)
+        {
+            ctx.push(ctx.dualProjectedDistance(zp1, p2, zp0, p1));
+        }
+        else
+        {
+            ctx.push(ctx.projectedDistance(zp1, p2, zp0, p1));
+        }
+    }
+
+    // --- delta exceptions ------------------------------------------------
+
+    private void installDeltaOps()
+    {
+        dispatch[0x5D] = ctx -> doDeltaP(ctx, 0); // DELTAP1
+        dispatch[0x71] = ctx -> doDeltaP(ctx, 1); // DELTAP2
+        dispatch[0x72] = ctx -> doDeltaP(ctx, 2); // DELTAP3
+        dispatch[0x73] = ctx -> doDeltaC(ctx, 0); // DELTAC1
+        dispatch[0x74] = ctx -> doDeltaC(ctx, 1); // DELTAC2
+        dispatch[0x75] = ctx -> doDeltaC(ctx, 2); // DELTAC3
+    }
+
+    private void doDeltaP(ExecutionContext ctx, int band)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        Zone zone = ctx.getZone(gs.getZp0());
+        int n = ctx.pop();
+        for (int i = 0; i < n; i++)
+        {
+            int point = ctx.pop();
+            int arg = ctx.pop();
+            if (deltaTargetPpem(gs, arg, band) == ctx.getPpem())
+            {
+                ctx.movePoint(zone, point, decodeDelta(arg & 0x0F, gs.getDeltaShift()));
+            }
+        }
+    }
+
+    private void doDeltaC(ExecutionContext ctx, int band)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        int[] cvt = ctx.getControlValues();
+        int n = ctx.pop();
+        for (int i = 0; i < n; i++)
+        {
+            int cvtIndex = ctx.pop();
+            int arg = ctx.pop();
+            if (deltaTargetPpem(gs, arg, band) == ctx.getPpem() && cvtIndex >= 0
+                    && cvtIndex < cvt.length)
+            {
+                cvt[cvtIndex] += decodeDelta(arg & 0x0F, gs.getDeltaShift());
+            }
+        }
+    }
+
+    private static int deltaTargetPpem(GraphicsState gs, int arg, int band)
+    {
+        return ((arg >> 4) & 0x0F) + gs.getDeltaBase() + band * 16;
+    }
+
+    private static int decodeDelta(int steps, int deltaShift)
+    {
+        int relative = steps < 8 ? steps - 8 : steps - 7; // 0..15 -> -8..-1, 1..8
+        int unit = Fixed.ONE >> deltaShift;               // 1 / 2^deltaShift of a pixel
+        return relative * unit;
+    }
+
+    // --- flip and scan-conversion ----------------------------------------
+
+    private void installFlipOps()
+    {
+        dispatch[0x4D] = ctx -> ctx.getGraphicsState().setAutoFlip(true);  // FLIPON
+        dispatch[0x4E] = ctx -> ctx.getGraphicsState().setAutoFlip(false); // FLIPOFF
+        dispatch[0x80] = ctx ->                                            // FLIPPT
+        {
+            boolean[] onCurve = ctx.getZone(1).getOnCurve();
+            forEachLoopPoint(ctx, point -> onCurve[point] = !onCurve[point]);
+        };
+        dispatch[0x81] = ctx -> flipRange(ctx, true);                      // FLIPRGON
+        dispatch[0x82] = ctx -> flipRange(ctx, false);                     // FLIPRGOFF
+        dispatch[0x85] = ctx -> ctx.getGraphicsState().setScanControl(ctx.pop()); // SCANCTRL
+        dispatch[0x8D] = ctx -> ctx.getGraphicsState().setScanType(ctx.pop());    // SCANTYPE
+        dispatch[0x8E] = ctx ->                                            // INSTCTRL
+        {
+            int selector = ctx.pop();
+            int value = ctx.pop();
+            ctx.getGraphicsState().setInstructControl(value & selector);
+        };
+    }
+
+    private static void flipRange(ExecutionContext ctx, boolean onCurve)
+    {
+        boolean[] flags = ctx.getZone(1).getOnCurve();
+        int high = ctx.pop();
+        int low = ctx.pop();
+        for (int i = low; i <= high && i < flags.length; i++)
+        {
+            if (i >= 0)
+            {
+                flags[i] = onCurve;
+            }
+        }
+    }
+
+    // --- loop helper -----------------------------------------------------
+
+    @FunctionalInterface
+    private interface PointConsumer
+    {
+        void accept(int point);
+    }
+
+    /** Processes the graphics-state loop count of points, popping one per iteration, then resets the
+     * loop counter to 1. */
+    private static void forEachLoopPoint(ExecutionContext ctx, PointConsumer consumer)
+    {
+        int loop = ctx.getGraphicsState().getLoop();
+        for (int i = 0; i < loop; i++)
+        {
+            consumer.accept(ctx.pop());
+        }
+        ctx.getGraphicsState().setLoop(1);
     }
 
     // --- handler helpers -------------------------------------------------

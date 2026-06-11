@@ -64,6 +64,11 @@ public class GraphicsState
 
     private int loop;
     private int roundState;
+    // derived rounding parameters (all F26Dot6), configured from the round state
+    private int roundPeriod;
+    private int roundPhase;
+    private int roundThreshold;
+    private boolean roundOff;
 
     private int minimumDistance;
     private int controlValueCutIn;
@@ -92,7 +97,7 @@ public class GraphicsState
         zp1 = 1;
         zp2 = 1;
         loop = 1;
-        roundState = ROUND_TO_GRID;
+        setRoundState(ROUND_TO_GRID);
         minimumDistance = Fixed.ONE;          // 1 pixel
         controlValueCutIn = 17 * Fixed.ONE / 16; // 17/16 pixel = 68
         singleWidthCutIn = 0;
@@ -118,6 +123,10 @@ public class GraphicsState
         zp2 = src.zp2;
         loop = src.loop;
         roundState = src.roundState;
+        roundPeriod = src.roundPeriod;
+        roundPhase = src.roundPhase;
+        roundThreshold = src.roundThreshold;
+        roundOff = src.roundOff;
         minimumDistance = src.minimumDistance;
         controlValueCutIn = src.controlValueCutIn;
         singleWidthCutIn = src.singleWidthCutIn;
@@ -270,10 +279,134 @@ public class GraphicsState
         return roundState;
     }
 
-    /** @param value the round state */
+    /**
+     * Sets the round state and derives the period/phase/threshold the {@link #round(int)} engine uses.
+     * The simple states are expressed as special cases of the super-round parameters. {@code SROUND}
+     * and {@code S45ROUND} call {@link #setSuperRound(int, int)} instead.
+     *
+     * @param value one of the {@code ROUND_*} constants
+     */
     public void setRoundState(int value)
     {
         roundState = value;
+        roundOff = false;
+        switch (value)
+        {
+            case ROUND_TO_GRID:
+                roundPeriod = Fixed.ONE;
+                roundPhase = 0;
+                roundThreshold = Fixed.HALF;
+                break;
+            case ROUND_TO_HALF_GRID:
+                roundPeriod = Fixed.ONE;
+                roundPhase = Fixed.HALF;
+                roundThreshold = Fixed.HALF;
+                break;
+            case ROUND_TO_DOUBLE_GRID:
+                roundPeriod = Fixed.HALF;
+                roundPhase = 0;
+                roundThreshold = Fixed.HALF / 2;
+                break;
+            case ROUND_DOWN_TO_GRID:
+                roundPeriod = Fixed.ONE;
+                roundPhase = 0;
+                roundThreshold = 0;
+                break;
+            case ROUND_UP_TO_GRID:
+                roundPeriod = Fixed.ONE;
+                roundPhase = 0;
+                roundThreshold = Fixed.ONE - 1;
+                break;
+            case ROUND_OFF:
+                roundOff = true;
+                break;
+            default:
+                // ROUND_SUPER / ROUND_SUPER_45 are configured by setSuperRound
+                break;
+        }
+    }
+
+    /**
+     * Configures super-round parameters for {@code SROUND}/{@code S45ROUND} from the selector byte,
+     * per the TrueType specification.
+     *
+     * @param gridPeriod the base grid period in F26Dot6 (one pixel for SROUND; the diagonal for
+     * S45ROUND)
+     * @param selector the operand byte controlling period, phase and threshold
+     */
+    public void setSuperRound(int gridPeriod, int selector)
+    {
+        switch (selector & 0xC0)
+        {
+            case 0x00:
+                roundPeriod = gridPeriod / 2;
+                break;
+            case 0x80:
+                roundPeriod = gridPeriod * 2;
+                break;
+            default:
+                roundPeriod = gridPeriod;
+                break;
+        }
+        if (roundPeriod < 1)
+        {
+            roundPeriod = 1;
+        }
+        switch (selector & 0x30)
+        {
+            case 0x00:
+                roundPhase = 0;
+                break;
+            case 0x10:
+                roundPhase = roundPeriod / 4;
+                break;
+            case 0x20:
+                roundPhase = roundPeriod / 2;
+                break;
+            default:
+                roundPhase = roundPeriod * 3 / 4;
+                break;
+        }
+        int n = selector & 0x0F;
+        roundThreshold = n == 0 ? roundPeriod - 1 : (n - 4) * roundPeriod / 8;
+        roundState = ROUND_SUPER;
+        roundOff = false;
+    }
+
+    /**
+     * Rounds a distance according to the current round state. Engine compensation (the black/white/
+     * grey distance bias FreeType applies) is treated as zero, which is correct for an anti-aliased
+     * Java2D target.
+     *
+     * @param distance the distance in F26Dot6
+     * @return the rounded distance in F26Dot6
+     */
+    public int round(int distance)
+    {
+        if (roundOff)
+        {
+            return distance;
+        }
+        int val;
+        if (distance >= 0)
+        {
+            val = Math.floorDiv(distance - roundPhase + roundThreshold, roundPeriod) * roundPeriod;
+            if (val < 0)
+            {
+                val = 0;
+            }
+            val += roundPhase;
+        }
+        else
+        {
+            val = -(Math.floorDiv(roundThreshold - roundPhase - distance, roundPeriod) * roundPeriod);
+            if (val > 0)
+            {
+                val = 0;
+            }
+            val -= roundPhase;
+        }
+        return val;
     }
 
     /** @return the minimum distance in F26Dot6 */
