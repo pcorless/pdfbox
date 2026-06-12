@@ -144,7 +144,8 @@ public final class Fixed
 
     /**
      * Divides two F26Dot6 values, returning an F26Dot6 result (the TrueType {@code DIV} operator).
-     * Division by zero yields zero.
+     * Division by zero yields zero. Unlike {@link #mul(int, int)} this <em>truncates</em> toward zero
+     * rather than rounding, matching FreeType's {@code DIV} opcode (which uses {@code FT_MulDiv_No_Round}).
      *
      * @param a F26Dot6 dividend
      * @param b F26Dot6 divisor
@@ -152,7 +153,24 @@ public final class Fixed
      */
     public static int div(int a, int b)
     {
-        return b == 0 ? 0 : mulDiv(a, ONE, b);
+        if (b == 0)
+        {
+            return 0;
+        }
+        long la = a;
+        long lb = b;
+        int sign = 1;
+        if (la < 0)
+        {
+            la = -la;
+            sign = -sign;
+        }
+        if (lb < 0)
+        {
+            lb = -lb;
+            sign = -sign;
+        }
+        return (int) (sign * (la * ONE / lb));
     }
 
     /**
