@@ -1010,8 +1010,8 @@ public class TrueTypeInterpreter
         GraphicsState gs = ctx.getGraphicsState();
         int flags = op & 0x1F;
         boolean setRp0 = (flags & 0x10) != 0;
-        boolean round = (flags & 0x08) != 0;
-        boolean useMin = (flags & 0x04) != 0;
+        boolean useMin = (flags & 0x08) != 0;
+        boolean round = (flags & 0x04) != 0;
         int point = ctx.pop();
         Zone zp1 = ctx.getZone(gs.getZp1());
         Zone zp0 = ctx.getZone(gs.getZp0());
@@ -1037,8 +1037,8 @@ public class TrueTypeInterpreter
         GraphicsState gs = ctx.getGraphicsState();
         int flags = op & 0x1F;
         boolean setRp0 = (flags & 0x10) != 0;
-        boolean round = (flags & 0x08) != 0;
-        boolean useMin = (flags & 0x04) != 0;
+        boolean useMin = (flags & 0x08) != 0;
+        boolean round = (flags & 0x04) != 0;
         // the CVT entry number is on top of the stack, the point number below it
         int cvtIndex = ctx.pop();
         int point = ctx.pop();

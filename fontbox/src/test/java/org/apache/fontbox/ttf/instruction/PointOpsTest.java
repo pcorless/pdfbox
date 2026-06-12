@@ -90,9 +90,26 @@ class PointOpsTest
         TrueTypeInterpreter interp = interpreter();
         Zone zone = lineZone(0, 100); // rp0 = point 0 at x=0, point 1 at 1.5625px
         ExecutionContext ctx = context(interp, zone);
-        // PUSHB[0] 1 ; MDRP[round] (0xC8) - move point 1 to a grid-rounded distance from rp0
-        interp.run(ctx, new BytecodeStream(new byte[] { (byte) 0xB0, 1, (byte) 0xC8 }));
+        // PUSHB[0] 1 ; MDRP[round] (0xC4, round bit = 0x04) - grid-rounded distance from rp0
+        interp.run(ctx, new BytecodeStream(new byte[] { (byte) 0xB0, 1, (byte) 0xC4 }));
         assertEquals(128, zone.getCurrentX()[1]); // distance 100 rounds to 128
+    }
+
+    @Test
+    void testMdrpRoundAndMinimumDistanceFlagsAreDistinct()
+    {
+        // guards the flag encoding: round is bit 0x04, minimum-distance is bit 0x08 (they were once
+        // swapped). A small original distance (30) below the minimum (64):
+        TrueTypeInterpreter interp = interpreter();
+        // round only (0xC4): 30 -> round(30) = 0, no minimum clamp
+        Zone roundZone = lineZone(0, 30);
+        interp.run(context(interp, roundZone), new BytecodeStream(new byte[] { (byte) 0xB0, 1, (byte) 0xC4 }));
+        assertEquals(0, roundZone.getCurrentX()[1]);
+
+        // minimum-distance only (0xC8): no rounding, but clamp the distance up to the minimum (64)
+        Zone minZone = lineZone(0, 30);
+        interp.run(context(interp, minZone), new BytecodeStream(new byte[] { (byte) 0xB0, 1, (byte) 0xC8 }));
+        assertEquals(64, minZone.getCurrentX()[1]);
     }
 
     @Test
@@ -106,8 +123,8 @@ class PointOpsTest
         ExecutionContext ctx = interp.newContext(new GraphicsState());
         ctx.setPpem(16);
         ctx.setGlyphZone(zone);
-        // PUSHB[1] 1 0 (point=1 pushed first, cvtIndex=0 on top) ; MIRP[round] (0xE8)
-        interp.run(ctx, new BytecodeStream(new byte[] { (byte) 0xB1, 1, 0, (byte) 0xE8 }));
+        // PUSHB[1] 1 0 (point=1 pushed first, cvtIndex=0 on top) ; MIRP[round] (0xE4, round = 0x04)
+        interp.run(ctx, new BytecodeStream(new byte[] { (byte) 0xB1, 1, 0, (byte) 0xE4 }));
         assertEquals(128, zone.getCurrentX()[1]);
     }
 
