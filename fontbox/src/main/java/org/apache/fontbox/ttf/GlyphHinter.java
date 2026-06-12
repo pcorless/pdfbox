@@ -21,6 +21,7 @@ import java.io.IOException;
 
 import org.apache.fontbox.ttf.instruction.BytecodeStream;
 import org.apache.fontbox.ttf.instruction.ExecutionContext;
+import org.apache.fontbox.ttf.instruction.ExecutionTracer;
 import org.apache.fontbox.ttf.instruction.Fixed;
 import org.apache.fontbox.ttf.instruction.GraphicsState;
 import org.apache.fontbox.ttf.instruction.TrueTypeInterpreter;
@@ -153,6 +154,35 @@ class GlyphHinter
         System.arraycopy(hinted.zone.getCurrentX(), 0, x, 0, hinted.pointCount);
         System.arraycopy(hinted.zone.getCurrentY(), 0, y, 0, hinted.pointCount);
         return new int[][] { x, y };
+    }
+
+    /**
+     * Runs the control value program untraced, then grid-fits the glyph with an execution tracer
+     * attached, so the per-instruction trace can be diffed against FreeType's {@code ttinterp} trace.
+     * For development/debugging only.
+     *
+     * @param gid the glyph id
+     * @param ppem the pixels-per-em
+     * @param out where to write the trace
+     * @throws IOException if the font could not be read
+     */
+    synchronized void traceGlyph(int gid, int ppem, java.io.PrintStream out) throws IOException
+    {
+        initialize();
+        if (!available)
+        {
+            return;
+        }
+        setActivePpem(ppem);
+        interpreter.setTracer(new ExecutionTracer(out));
+        try
+        {
+            hint(gid, ppem, 0);
+        }
+        finally
+        {
+            interpreter.setTracer(null);
+        }
     }
 
     /** Maximum composite nesting depth, to bound recursion on pathological fonts. */

@@ -70,6 +70,7 @@ public class TrueTypeInterpreter
     private int ppem;
     private int pointSize;
     private GraphicsState savedState;
+    private ExecutionTracer tracer;
 
     /**
      * @param maxStackElements operand stack capacity (from maxp)
@@ -105,6 +106,18 @@ public class TrueTypeInterpreter
     public void setControlValues(int[] values)
     {
         this.rawControlValues = values != null ? values : new int[0];
+    }
+
+    /**
+     * Attaches (or clears with {@code null}) an execution tracer that emits one FreeType-comparable
+     * line per executed instruction. Used by the trace-diff tooling to localize divergence; off in
+     * normal operation.
+     *
+     * @param tracer the tracer, or null to disable tracing
+     */
+    public void setTracer(ExecutionTracer tracer)
+    {
+        this.tracer = tracer;
     }
 
     // --- lifecycle -------------------------------------------------------
@@ -221,6 +234,10 @@ public class TrueTypeInterpreter
             {
                 s.markInstructionStart();
                 int opcode = s.nextByte();
+                if (tracer != null)
+                {
+                    tracer.trace(s.instructionStart(), opcode, ctx);
+                }
                 dispatch[opcode].execute(ctx);
             }
         }
