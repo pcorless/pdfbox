@@ -59,18 +59,20 @@ class GoldenHintingTest
 
     /**
      * Composite glyphs (accented letters) are assembled from independently hinted components, so their
-     * bases are grid-fit exactly while the diacritic marks inherit the small-glyph rounding residual
-     * (worst around 1.6px at 11ppem). Bounds are looser and best-effort.
+     * bases grid-fit exactly. The diacritic marks (also exact in isolation) inherit a residual of up to
+     * ~1.6px from the composite's own instructions repositioning them - the same small-glyph rounding
+     * residual that affects simple glyphs at small ppem. ~73% of coordinates are within 1 ULP. Bounds
+     * are looser and best-effort.
      * <p>
-     * TODO tighten as the residual that also affects small simple glyphs is driven down; consider
-     * SCALED_COMPONENT_OFFSET / point-matching / USE_MY_METRICS if a font needs them.
+     * TODO tighten as that residual is driven down; consider SCALED_COMPONENT_OFFSET / point-matching /
+     * USE_MY_METRICS if a font needs them.
      */
     @Test
     void testCompositeGlyphsAgainstFreeType() throws IOException
     {
         Stats s = compare(true);
         assertTrue(s.worstDelta <= 128, s.summary("composite"));
-        assertTrue(s.withinOnePercent() >= 60, s.summary("composite"));
+        assertTrue(s.withinOnePercent() >= 70, s.summary("composite"));
     }
 
     private Stats compare(boolean composite) throws IOException

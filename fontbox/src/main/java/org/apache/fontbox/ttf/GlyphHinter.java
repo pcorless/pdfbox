@@ -317,14 +317,10 @@ class GlyphHinter
             cCurY = hintedComponent.zone.getCurrentY();
         }
 
-        // device-space offset (rounded to the grid when the component asks for it)
+        // device-space offset (FreeType does not grid-round the component offset here, even when
+        // ROUND_XY_TO_GRID is set, so neither do we)
         int offsetX = Fixed.scale(comp.getXTranslate(), ppem, unitsPerEm);
         int offsetY = Fixed.scale(comp.getYTranslate(), ppem, unitsPerEm);
-        if ((comp.getFlags() & 0x0004) != 0) // ROUND_XY_TO_GRID
-        {
-            offsetX = Fixed.round(offsetX);
-            offsetY = Fixed.round(offsetY);
-        }
 
         for (int k = 0; k < count; k++)
         {
