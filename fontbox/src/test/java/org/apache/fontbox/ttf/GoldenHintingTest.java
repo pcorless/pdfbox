@@ -58,20 +58,20 @@ class GoldenHintingTest
     }
 
     /**
-     * Composite glyphs (accented letters) are assembled from independently hinted components, so their
-     * bases grid-fit exactly. A sub-pixel residual (worst ~0.9px) remains where the composite's own
-     * instructions reposition a diacritic (e.g. the circumflex height on 'a-circumflex'); ~75% of
-     * coordinates are within 1 ULP. Bounds are looser and best-effort.
+     * Composite glyphs (accented letters) match FreeType to within one F26Dot6 unit on every
+     * coordinate, the same as simple glyphs: each component is hinted independently and baked into the
+     * composite (its original set equal to its assembled position), then the composite's own
+     * instructions run. ~75% byte-exact, 100% within 1 ULP.
      * <p>
-     * TODO tighten the diacritic-positioning residual; consider SCALED_COMPONENT_OFFSET / point-matching
-     * / USE_MY_METRICS if a font needs them.
+     * Not yet special-cased (no LiberationSans glyph needs them): SCALED_COMPONENT_OFFSET,
+     * point-matching, USE_MY_METRICS.
      */
     @Test
     void testCompositeGlyphsAgainstFreeType() throws IOException
     {
         Stats s = compare(true);
-        assertTrue(s.worstDelta <= 96, s.summary("composite"));
-        assertTrue(s.withinOnePercent() >= 73, s.summary("composite"));
+        assertTrue(s.worstDelta <= 2, s.summary("composite"));
+        assertTrue(s.withinOnePercent() >= 99, s.summary("composite"));
     }
 
     private Stats compare(boolean composite) throws IOException

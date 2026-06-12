@@ -325,7 +325,7 @@ class GlyphHinter
         int count = cgd.getPointCount();
         boolean[] onCurve = zone.getOnCurve();
 
-        // scaled-but-unhinted component points (the "original" outline) and the unscaled font-unit ones
+        // scaled-but-unhinted component points (used as a fallback) and the unscaled font-unit ones
         int[] cOrgX = new int[count];
         int[] cOrgY = new int[count];
         int[] cUnsX = new int[count];
@@ -364,10 +364,13 @@ class GlyphHinter
         int[] unsY = zone.getUnscaledY();
         for (int k = 0; k < count; k++)
         {
-            orgX[first + k] = comp.scaleX(cOrgX[k], cOrgY[k]) + offsetX;
-            orgY[first + k] = comp.scaleY(cOrgX[k], cOrgY[k]) + offsetY;
             curX[first + k] = comp.scaleX(cCurX[k], cCurY[k]) + offsetX;
             curY[first + k] = comp.scaleY(cCurX[k], cCurY[k]) + offsetY;
+            // FreeType bakes each hinted component into the composite and copies cur -> org before
+            // running the composite program, so the original equals the assembled hinted position
+            // (a SHC/MDRP in the composite then measures zero movement for an unmoved component point)
+            orgX[first + k] = curX[first + k];
+            orgY[first + k] = curY[first + k];
             unsX[first + k] = comp.scaleX(cUnsX[k], cUnsY[k]) + unsOffsetX;
             unsY[first + k] = comp.scaleY(cUnsX[k], cUnsY[k]) + unsOffsetY;
         }
