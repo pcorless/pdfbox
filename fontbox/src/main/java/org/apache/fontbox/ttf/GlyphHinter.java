@@ -155,6 +155,9 @@ class GlyphHinter
         return new int[][] { x, y };
     }
 
+    /** Maximum composite nesting depth, to bound recursion on pathological fonts. */
+    private static final int MAX_COMPONENT_DEPTH = 8;
+
     /** Runs all gating, then grid-fits the glyph, returning the executed zone or null on fallback. */
     private Hinted hint(int gid, int ppem)
     {
@@ -174,43 +177,173 @@ class GlyphHinter
             {
                 return null;
             }
-            GlyphData glyph = font.getGlyph().getGlyph(gid);
-            if (glyph == null || glyph.getNumberOfContours() <= 0)
-            {
-                // empty or composite glyph: not handled yet, fall back to the raw outline
-                return null;
-            }
-            GlyphDescription gd = glyph.getDescription();
-            if (!(gd instanceof GlyfDescript))
-            {
-                return null;
-            }
-            int[] instructions = ((GlyfDescript) gd).getInstructions();
-            if (instructions == null || instructions.length == 0)
-            {
-                return null;
-            }
-            if (ppem != currentPpem)
-            {
-                interpreter.setPpem(ppem, ppem);
-                currentPpem = ppem;
-            }
-            int pointCount = gd.getPointCount();
-            Zone zone = buildZone(glyph, gd, gid, ppem, pointCount, gd.getContourCount());
-
-            GraphicsState gs = interpreter.getSavedState().copy();
-            gs.resetForGlyph();
-            ExecutionContext ctx = interpreter.newContext(gs);
-            ctx.setPpem(ppem);
-            ctx.setGlyphZone(zone);
-            interpreter.run(ctx, new BytecodeStream(toByteArray(instructions)));
-            return new Hinted(gd, zone, pointCount);
+            setActivePpem(ppem);
+            return hint(gid, ppem, 0);
         }
         catch (IOException | RuntimeException e)
         {
             LOG.warn("hinting failed for glyph {} at {}ppem, using raw outline", gid, ppem, e);
             return null;
         }
+    }
+
+    private void setActivePpem(int ppem) throws IOException
+    {
+        if (ppem != currentPpem)
+        {
+            interpreter.setPpem(ppem, ppem);
+            currentPpem = ppem;
+        }
+    }
+
+    /** Grid-fits one glyph (simple or composite), recursing into components. */
+    private Hinted hint(int gid, int ppem, int depth) throws IOException
+    {
+        if (depth > MAX_COMPONENT_DEPTH)
+        {
+            return null;
+        }
+        GlyphData glyph = font.getGlyph().getGlyph(gid);
+        if (glyph == null)
+        {
+            return null;
+        }
+        GlyphDescription gd = glyph.getDescription();
+        if (!(gd instanceof GlyfDescript))
+        {
+            return null;
+        }
+        if (gd.isComposite())
+        {
+            gd.resolve();
+            if (gd.getPointCount() == 0)
+            {
+                return null;
+            }
+            return hintComposite(glyph, (GlyfCompositeDescript) gd, gid, ppem, depth);
+        }
+        if (gd.getContourCount() == 0 || gd.getPointCount() == 0)
+        {
+            // empty glyph (e.g. space, newline): nothing to hint
+            return null;
+        }
+        int[] instructions = ((GlyfDescript) gd).getInstructions();
+        if (instructions == null || instructions.length == 0)
+        {
+            return null;
+        }
+        int pointCount = gd.getPointCount();
+        Zone zone = buildZone(glyph, gd, gid, ppem, pointCount, gd.getContourCount());
+        runProgram(zone, instructions, ppem);
+        return new Hinted(gd, zone, pointCount);
+    }
+
+    /**
+     * Grid-fits a composite glyph the way FreeType does: each component is hinted on its own, then
+     * transformed and offset into the composite's coordinate space, the phantom points appended, and
+     * finally the composite's own instructions (if any) run over the assembled outline.
+     */
+    private Hinted hintComposite(GlyphData glyph, GlyfCompositeDescript composite, int gid, int ppem,
+            int depth) throws IOException
+    {
+        int pointCount = composite.getPointCount();
+        int contourCount = composite.getContourCount();
+        Zone zone = new Zone(pointCount + 4, contourCount);
+        int[] curX = zone.getCurrentX();
+        int[] curY = zone.getCurrentY();
+        int[] orgX = zone.getOriginalX();
+        int[] orgY = zone.getOriginalY();
+        boolean[] onCurve = zone.getOnCurve();
+
+        for (GlyfCompositeComp comp : composite.getComponents())
+        {
+            assembleComponent(comp, ppem, depth, curX, curY, orgX, orgY, onCurve);
+        }
+        int[] ends = zone.getContourEnds();
+        for (int c = 0; c < contourCount; c++)
+        {
+            ends[c] = composite.getEndPtOfContours(c);
+        }
+        appendPhantomPoints(glyph, gid, ppem, pointCount, orgX, orgY, curX, curY);
+
+        int[] instructions = composite.getInstructions();
+        if (instructions != null && instructions.length > 0)
+        {
+            runProgram(zone, instructions, ppem);
+        }
+        return new Hinted(composite, zone, pointCount);
+    }
+
+    /**
+     * Hints one component glyph and writes its transformed/offset points into the composite's zone
+     * arrays. The component's grid-fitted outline goes to the current arrays and its scaled-but-unhinted
+     * outline to the original arrays, so the composite's instructions can measure original distances.
+     */
+    private void assembleComponent(GlyfCompositeComp comp, int ppem, int depth, int[] curX,
+            int[] curY, int[] orgX, int[] orgY, boolean[] onCurve) throws IOException
+    {
+        int componentGid = comp.getGlyphIndex();
+        int first = comp.getFirstIndex();
+
+        GlyphData componentGlyph = font.getGlyph().getGlyph(componentGid);
+        GlyphDescription cgd = componentGlyph != null ? componentGlyph.getDescription() : null;
+        if (cgd == null)
+        {
+            return;
+        }
+        if (cgd.isComposite())
+        {
+            cgd.resolve();
+        }
+        int count = cgd.getPointCount();
+
+        // scaled-but-unhinted component points (the "original" outline)
+        int[] cOrgX = new int[count];
+        int[] cOrgY = new int[count];
+        for (int k = 0; k < count; k++)
+        {
+            cOrgX[k] = Fixed.scale(cgd.getXCoordinate(k), ppem, unitsPerEm);
+            cOrgY[k] = Fixed.scale(cgd.getYCoordinate(k), ppem, unitsPerEm);
+            onCurve[first + k] = (cgd.getFlags(k) & GlyfDescript.ON_CURVE) != 0;
+        }
+
+        // grid-fitted component points (its own instructions executed); fall back to unhinted
+        int[] cCurX = cOrgX;
+        int[] cCurY = cOrgY;
+        Hinted hintedComponent = hint(componentGid, ppem, depth + 1);
+        if (hintedComponent != null && hintedComponent.pointCount == count)
+        {
+            cCurX = hintedComponent.zone.getCurrentX();
+            cCurY = hintedComponent.zone.getCurrentY();
+        }
+
+        // device-space offset (rounded to the grid when the component asks for it)
+        int offsetX = Fixed.scale(comp.getXTranslate(), ppem, unitsPerEm);
+        int offsetY = Fixed.scale(comp.getYTranslate(), ppem, unitsPerEm);
+        if ((comp.getFlags() & 0x0004) != 0) // ROUND_XY_TO_GRID
+        {
+            offsetX = Fixed.round(offsetX);
+            offsetY = Fixed.round(offsetY);
+        }
+
+        for (int k = 0; k < count; k++)
+        {
+            orgX[first + k] = comp.scaleX(cOrgX[k], cOrgY[k]) + offsetX;
+            orgY[first + k] = comp.scaleY(cOrgX[k], cOrgY[k]) + offsetY;
+            curX[first + k] = comp.scaleX(cCurX[k], cCurY[k]) + offsetX;
+            curY[first + k] = comp.scaleY(cCurX[k], cCurY[k]) + offsetY;
+        }
+    }
+
+    /** Clones the saved post-prep state, resets it for the glyph, and runs the program over the zone. */
+    private void runProgram(Zone zone, int[] instructions, int ppem)
+    {
+        GraphicsState gs = interpreter.getSavedState().copy();
+        gs.resetForGlyph();
+        ExecutionContext ctx = interpreter.newContext(gs);
+        ctx.setPpem(ppem);
+        ctx.setGlyphZone(zone);
+        interpreter.run(ctx, new BytecodeStream(toByteArray(instructions)));
     }
 
     /** The result of grid-fitting one glyph: its description, the executed zone, and its point count

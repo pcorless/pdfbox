@@ -50,8 +50,8 @@ FONT_DIR = os.path.normpath(os.path.join(HERE, ".."))
 
 FONTS = ["LiberationSans-Regular.ttf"]
 PPEMS = [11, 13, 16, 24]
-# simple, well-hinted glyphs (avoid composites/accents for now)
-CHARS = "HILEThoxn0123456789"
+# simple, well-hinted glyphs plus common composites (accented letters: base glyph + diacritic)
+CHARS = "HILEThoxn0123456789" + "áàâäãéèçñüÁÉÑÜ"
 
 # native bytecode hinting (no autohinter), monochrome target => classic full-pixel grid-fitting
 LOAD_FLAGS = freetype.FT_LOAD_NO_AUTOHINT | freetype.FT_LOAD_TARGET_MONO
