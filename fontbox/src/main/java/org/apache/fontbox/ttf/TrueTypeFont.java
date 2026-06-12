@@ -54,7 +54,9 @@ public class TrueTypeFont implements FontBoxFont, Closeable
     
     private final Object lockReadtable = new Object();
     private final Object lockPSNames = new Object();
+    private final Object lockHinter = new Object();
     private final List<String> enabledGsubFeatures = new ArrayList<>();
+    private GlyphHinter hinter;
 
     /**
      * Constructor.  Clients should use the TTFParser to create a new TrueTypeFont object.
@@ -831,6 +833,30 @@ public class TrueTypeFont implements FontBoxFont, Closeable
     {
         int gid = nameToGID(name);
         return getAdvanceWidth(gid);
+    }
+
+    /**
+     * Returns the grid-fitted (hinted) path of the given glyph at the given ppem, in font units, or
+     * {@code null} if hinting does not apply (no bytecode program, a composite or empty glyph, a ppem
+     * excluded by the gasp table, or hinting disabled). The caller should fall back to the raw outline
+     * ({@link GlyphData#getPath()}) when this returns {@code null}.
+     *
+     * @param gid the glyph id
+     * @param ppem the pixels-per-em to grid-fit to
+     * @return the hinted path in font units, or null
+     */
+    public GeneralPath getHintedPath(int gid, int ppem)
+    {
+        GlyphHinter glyphHinter;
+        synchronized (lockHinter)
+        {
+            if (hinter == null)
+            {
+                hinter = new GlyphHinter(this);
+            }
+            glyphHinter = hinter;
+        }
+        return glyphHinter.getPath(gid, ppem);
     }
 
     @Override

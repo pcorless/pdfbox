@@ -103,8 +103,8 @@ class PointOpsTest
         ExecutionContext ctx = interp.newContext(new GraphicsState());
         ctx.setPpem(16);
         ctx.setGlyphZone(zone);
-        // PUSHB[1] 0 1 (cvtIndex=0, point=1) ; MIRP[round] (0xE8)
-        interp.run(ctx, new BytecodeStream(new byte[] { (byte) 0xB1, 0, 1, (byte) 0xE8 }));
+        // PUSHB[1] 1 0 (point=1 pushed first, cvtIndex=0 on top) ; MIRP[round] (0xE8)
+        interp.run(ctx, new BytecodeStream(new byte[] { (byte) 0xB1, 1, 0, (byte) 0xE8 }));
         assertEquals(128, zone.getCurrentX()[1]);
     }
 

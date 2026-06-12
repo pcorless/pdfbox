@@ -1005,8 +1005,9 @@ public class TrueTypeInterpreter
         boolean setRp0 = (flags & 0x10) != 0;
         boolean round = (flags & 0x08) != 0;
         boolean useMin = (flags & 0x04) != 0;
-        int point = ctx.pop();
+        // the CVT entry number is on top of the stack, the point number below it
         int cvtIndex = ctx.pop();
+        int point = ctx.pop();
         int[] cvt = ctx.getControlValues();
         int cvtValue = cvtIndex >= 0 && cvtIndex < cvt.length ? cvt[cvtIndex] : 0;
         cvtValue = applySingleWidth(gs, cvtValue);
