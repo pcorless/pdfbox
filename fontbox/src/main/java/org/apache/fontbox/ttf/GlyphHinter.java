@@ -114,6 +114,50 @@ class GlyphHinter
      */
     synchronized GeneralPath getPath(int gid, int ppem)
     {
+        Hinted hinted = hint(gid, ppem);
+        if (hinted == null)
+        {
+            return null;
+        }
+        // scale the grid-fitted coordinates back into font units (drop the phantom points)
+        int[] hintedX = new int[hinted.pointCount];
+        int[] hintedY = new int[hinted.pointCount];
+        int[] curX = hinted.zone.getCurrentX();
+        int[] curY = hinted.zone.getCurrentY();
+        for (int i = 0; i < hinted.pointCount; i++)
+        {
+            hintedX[i] = toFontUnits(curX[i], ppem);
+            hintedY[i] = toFontUnits(curY[i], ppem);
+        }
+        return new GlyphRenderer(hinted.gd, hintedX, hintedY).getPath();
+    }
+
+    /**
+     * Returns the grid-fitted glyph points in F26Dot6 device coordinates (the raw interpreter output,
+     * before scaling back to font units, and excluding the phantom points), or {@code null} if hinting
+     * does not apply. This is the form compared against a FreeType reference dump by the golden tests.
+     *
+     * @param gid the glyph id
+     * @param ppem the pixels-per-em to grid-fit to
+     * @return a {@code {x[], y[]}} pair in F26Dot6, or null
+     */
+    synchronized int[][] getHintedPointsF26Dot6(int gid, int ppem)
+    {
+        Hinted hinted = hint(gid, ppem);
+        if (hinted == null)
+        {
+            return null;
+        }
+        int[] x = new int[hinted.pointCount];
+        int[] y = new int[hinted.pointCount];
+        System.arraycopy(hinted.zone.getCurrentX(), 0, x, 0, hinted.pointCount);
+        System.arraycopy(hinted.zone.getCurrentY(), 0, y, 0, hinted.pointCount);
+        return new int[][] { x, y };
+    }
+
+    /** Runs all gating, then grid-fits the glyph, returning the executed zone or null on fallback. */
+    private Hinted hint(int gid, int ppem)
+    {
         if (isDisabled() || ppem <= 0)
         {
             return null;
@@ -146,7 +190,21 @@ class GlyphHinter
             {
                 return null;
             }
-            return hintGlyph(glyph, gd, gid, ppem, instructions);
+            if (ppem != currentPpem)
+            {
+                interpreter.setPpem(ppem, ppem);
+                currentPpem = ppem;
+            }
+            int pointCount = gd.getPointCount();
+            Zone zone = buildZone(glyph, gd, gid, ppem, pointCount, gd.getContourCount());
+
+            GraphicsState gs = interpreter.getSavedState().copy();
+            gs.resetForGlyph();
+            ExecutionContext ctx = interpreter.newContext(gs);
+            ctx.setPpem(ppem);
+            ctx.setGlyphZone(zone);
+            interpreter.run(ctx, new BytecodeStream(toByteArray(instructions)));
+            return new Hinted(gd, zone, pointCount);
         }
         catch (IOException | RuntimeException e)
         {
@@ -155,39 +213,20 @@ class GlyphHinter
         }
     }
 
-    private GeneralPath hintGlyph(GlyphData glyph, GlyphDescription gd, int gid, int ppem,
-            int[] instructions) throws IOException
+    /** The result of grid-fitting one glyph: its description, the executed zone, and its point count
+     * (without the appended phantom points). */
+    private static final class Hinted
     {
-        if (ppem != currentPpem)
+        private final GlyphDescription gd;
+        private final Zone zone;
+        private final int pointCount;
+
+        Hinted(GlyphDescription gd, Zone zone, int pointCount)
         {
-            interpreter.setPpem(ppem, ppem);
-            currentPpem = ppem;
+            this.gd = gd;
+            this.zone = zone;
+            this.pointCount = pointCount;
         }
-
-        int pointCount = gd.getPointCount();
-        int contourCount = gd.getContourCount();
-        Zone zone = buildZone(glyph, gd, gid, ppem, pointCount, contourCount);
-
-        GraphicsState gs = interpreter.getSavedState().copy();
-        gs.resetForGlyph();
-        ExecutionContext ctx = interpreter.newContext(gs);
-        ctx.setPpem(ppem);
-        ctx.setGlyphZone(zone);
-
-        byte[] program = toByteArray(instructions);
-        interpreter.run(ctx, new BytecodeStream(program));
-
-        // scale the grid-fitted coordinates back into font units (drop the phantom points)
-        int[] hintedX = new int[pointCount];
-        int[] hintedY = new int[pointCount];
-        int[] curX = zone.getCurrentX();
-        int[] curY = zone.getCurrentY();
-        for (int i = 0; i < pointCount; i++)
-        {
-            hintedX[i] = toFontUnits(curX[i], ppem);
-            hintedY[i] = toFontUnits(curY[i], ppem);
-        }
-        return new GlyphRenderer(gd, hintedX, hintedY).getPath();
     }
 
     private Zone buildZone(GlyphData glyph, GlyphDescription gd, int gid, int ppem, int pointCount,
@@ -236,8 +275,9 @@ class GlyphHinter
             int index = pointCount + i;
             orgX[index] = Fixed.scale(px[i], ppem, unitsPerEm);
             orgY[index] = Fixed.scale(py[i], ppem, unitsPerEm);
-            curX[index] = orgX[index];
-            curY[index] = orgY[index];
+            // FreeType rounds the phantom points to the grid before running the glyph program
+            curX[index] = Fixed.round(orgX[index]);
+            curY[index] = Fixed.round(orgY[index]);
         }
     }
 
