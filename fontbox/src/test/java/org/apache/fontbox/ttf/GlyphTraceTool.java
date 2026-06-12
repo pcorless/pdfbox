@@ -44,6 +44,7 @@ class GlyphTraceTool
 
         int gid = Integer.parseInt(gidProp);
         int ppem = Integer.parseInt(System.getProperty("trace.ppem", "11"));
+        int point = Integer.parseInt(System.getProperty("trace.point", "-1"));
         String fontPath = System.getProperty("trace.font",
                 "src/test/resources/ttf/LiberationSans-Regular.ttf");
         String outPath = System.getProperty("trace.out");
@@ -57,7 +58,7 @@ class GlyphTraceTool
         PrintStream out = outPath != null ? new PrintStream(outPath, "UTF-8") : System.out;
         try
         {
-            new GlyphHinter(font).traceGlyph(gid, ppem, out);
+            new GlyphHinter(font).traceGlyph(gid, ppem, out, point);
         }
         finally
         {

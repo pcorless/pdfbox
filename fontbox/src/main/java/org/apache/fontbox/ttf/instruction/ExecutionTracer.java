@@ -42,13 +42,25 @@ public class ExecutionTracer
     private static final int STACK_WINDOW = 8;
 
     private final PrintStream out;
+    private final int tracePoint;
 
     /**
      * @param out where to write trace lines
      */
     public ExecutionTracer(PrintStream out)
     {
+        this(out, -1);
+    }
+
+    /**
+     * @param out where to write trace lines
+     * @param tracePoint a glyph-zone point index whose current coordinate is appended to each line
+     * (for localizing silent point-position divergence), or -1 to omit
+     */
+    public ExecutionTracer(PrintStream out, int tracePoint)
+    {
         this.out = out;
+        this.tracePoint = tracePoint;
     }
 
     /**
@@ -70,7 +82,17 @@ public class ExecutionTracer
     void trace(int pc, int opcode, ExecutionContext ctx)
     {
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format("%06d  %-11s #", pc, MNEMONICS[opcode & 0xFF]));
+        sb.append(String.format("%06d  %-11s", pc, MNEMONICS[opcode & 0xFF]));
+        if (tracePoint >= 0)
+        {
+            Zone zone = ctx.getGlyphZone();
+            if (zone != null && tracePoint < zone.getPointCount())
+            {
+                sb.append(String.format(" P%d=(%d,%d)", tracePoint,
+                        zone.getCurrentX()[tracePoint], zone.getCurrentY()[tracePoint]));
+            }
+        }
+        sb.append(" #");
         // top of stack first, matching FreeType's ttinterp window
         int window = Math.min(STACK_WINDOW, ctx.getStackDepth());
         for (int k = 0; k < window; k++)

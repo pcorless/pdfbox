@@ -164,9 +164,11 @@ class GlyphHinter
      * @param gid the glyph id
      * @param ppem the pixels-per-em
      * @param out where to write the trace
+     * @param tracePoint a glyph point index to log per instruction, or -1
      * @throws IOException if the font could not be read
      */
-    synchronized void traceGlyph(int gid, int ppem, java.io.PrintStream out) throws IOException
+    synchronized void traceGlyph(int gid, int ppem, java.io.PrintStream out, int tracePoint)
+            throws IOException
     {
         initialize();
         if (!available)
@@ -174,7 +176,7 @@ class GlyphHinter
             return;
         }
         setActivePpem(ppem);
-        interpreter.setTracer(new ExecutionTracer(out));
+        interpreter.setTracer(new ExecutionTracer(out, tracePoint));
         try
         {
             hint(gid, ppem, 0);

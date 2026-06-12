@@ -43,27 +43,35 @@ Usage
 -----
    FT2_DEBUG=ttinterp:7 python3 trace_diff.py --gid 22 --ppem 11 --ours /tmp/our-trace.txt
 
-Both traces use the line format ``<pc>  <MNEMONIC>  # <stack window>``. Only the program counter and
-the opcode are compared by default (mnemonic spellings differ between the two); pass --stack to also
-compare the operand window.
+Both traces use a line format starting with ``<pc>  <opcode>`` and optionally carrying a point column
+``Pn=(x,y)`` and/or a stack window ``# ...``. The program counter is always compared (catching
+control-flow divergence). Pass --stack to also compare the operand window. To localize a *silent*
+point-position divergence, pass --ft a FreeType point trace produced by ft_point_trace (which carries
+``Pn=(x,y)``) and dump the FontBox trace with ``-Dtrace.point=n``; the point column is then compared.
 """
 import argparse
 import os
 import re
 import sys
 
-LINE = re.compile(r"^\s*(\d+)\s+(\S+)\s*#(.*)$")
+PC = re.compile(r"^\s*(\d+)\s+(\S+)")
+POINT = re.compile(r"P\d+=\((-?\d+),(-?\d+)\)")
+STACK = re.compile(r"#(.*)$")
 
 
 def parse_trace(lines):
     out = []
     for line in lines:
-        m = LINE.match(line)
-        if m:
-            pc = int(m.group(1))
-            op = m.group(2)
-            stack = m.group(3).split()
-            out.append((pc, op, stack))
+        m = PC.match(line)
+        if not m:
+            continue
+        pc = int(m.group(1))
+        op = m.group(2)
+        pm = POINT.search(line)
+        point = (int(pm.group(1)), int(pm.group(2))) if pm else None
+        sm = STACK.search(line)
+        stack = sm.group(1).split() if sm else []
+        out.append((pc, op, point, stack))
     return out
 
 
@@ -97,40 +105,45 @@ def main():
     ap.add_argument("--gid", type=int, required=True)
     ap.add_argument("--ppem", type=int, default=11)
     ap.add_argument("--ours", required=True, help="FontBox trace file from GlyphTraceTool")
+    ap.add_argument("--ft", help="FreeType trace file (e.g. from ft_point_trace); "
+                                 "if omitted, FreeType's ttinterp trace is captured via freetype-py")
     ap.add_argument("--stack", action="store_true", help="also compare the operand stack window")
+    ap.add_argument("--point", action="store_true", help="compare the Pn=(x,y) point column")
     args = ap.parse_args()
 
-    ft = parse_trace(freetype_trace(args.font, args.gid, args.ppem))
+    if args.ft:
+        with open(args.ft, encoding="utf-8") as fh:
+            ft = parse_trace(fh.readlines())
+    else:
+        ft = parse_trace(freetype_trace(args.font, args.gid, args.ppem))
     with open(args.ours, encoding="utf-8") as fh:
         ours = parse_trace(fh.readlines())
 
-    # FreeType traces fpgm + prep + glyph; FontBox traces only the glyph program. Align on the tail:
-    # find the longest common suffix-ish region by matching FontBox's stream inside FreeType's.
-    n = min(len(ft), len(ours))
+    # FreeType traces fpgm + prep + glyph; FontBox traces only the glyph program. Align on the tail.
     print(f"FreeType instructions: {len(ft)}   FontBox instructions: {len(ours)}")
     ft_tail = ft[-len(ours):] if len(ft) >= len(ours) else ft
 
-    diverged = False
     for i, (a, b) in enumerate(zip(ft_tail, ours)):
-        pc_a, op_a, st_a = a
-        pc_b, op_b, st_b = b
+        pc_a, op_a, pt_a, st_a = a
+        pc_b, op_b, pt_b, st_b = b
         mismatch = pc_a != pc_b
         if args.stack and st_a[: len(st_b)] != st_b[: len(st_a)]:
             mismatch = True
+        if args.point and pt_a is not None and pt_b is not None and pt_a != pt_b:
+            mismatch = True
         if mismatch:
-            print(f"\nFirst divergence at aligned instruction {i}:")
-            print(f"  FreeType: pc={pc_a:6d} {op_a:12s} # {' '.join(st_a)}")
-            print(f"  FontBox : pc={pc_b:6d} {op_b:12s} # {' '.join(st_b)}")
+            print(f"\nFirst divergence at aligned instruction {i} (the instruction that produced it "
+                  "is the one before, where the point/stack still matched):")
+            print(f"  FreeType: pc={pc_a:6d} {op_a:10s} pt={pt_a} # {' '.join(st_a)}")
+            print(f"  FontBox : pc={pc_b:6d} {op_b:10s} pt={pt_b} # {' '.join(st_b)}")
             print("  (context, FreeType | FontBox):")
             for j in range(max(0, i - 4), i + 1):
-                print(f"    {ft_tail[j][0]:6d} {ft_tail[j][1]:12s} | {ours[j][0]:6d} {ours[j][1]}")
-            diverged = True
-            break
-    if not diverged:
-        print(f"\nNo PC divergence over {min(len(ft_tail), len(ours))} aligned instructions: control "
-              "flow matches FreeType. Any remaining difference is silent per-opcode arithmetic - "
-              "compare final point positions to find it.")
-    return 1 if diverged else 0
+                print(f"    {ft_tail[j][0]:6d} {ft_tail[j][1]:10s} {ft_tail[j][2]} | "
+                      f"{ours[j][0]:6d} {ours[j][1]:10s} {ours[j][2]}")
+            return 1
+    print(f"\nNo divergence over {min(len(ft_tail), len(ours))} aligned instructions for the compared "
+          "columns.")
+    return 0
 
 
 if __name__ == "__main__":

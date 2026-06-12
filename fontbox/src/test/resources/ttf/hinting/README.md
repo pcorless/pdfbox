@@ -11,7 +11,8 @@ facts, not derivatives of FreeType (see `hinting_plan.md` "Oracle licensing").
 |------|---------|
 | `generate_golden.py` | Dumps FreeType's post-hinting outline points for the Tier-A fonts to `<font>-<ppem>.txt`. These back `GoldenHintingTest`. |
 | `LiberationSans-Regular-*.txt` | The committed golden coordinate data (one file per ppem). |
-| `trace_diff.py` | Aligns FreeType's per-instruction `ttinterp` trace against the FontBox interpreter's trace and reports the first divergence. |
+| `trace_diff.py` | Aligns FreeType's per-instruction trace against the FontBox interpreter's trace and reports the first divergence (program counter, operand stack, or point coordinate). |
+| `ft_point_trace.c` | FreeType single-stepper: dumps one glyph point's coordinate per instruction, for localizing *silent* point-position divergence. |
 | `README.md` | This file. |
 
 ## Golden coordinate test (CI)
@@ -58,3 +59,28 @@ that never reaches the stack — compare final point positions to find it.
 
 The interpreter side is driven by `TrueTypeInterpreter.setTracer(ExecutionTracer)`; it is off in
 normal operation.
+
+### Localizing a *silent* point divergence (points extension)
+
+When the stack matches FreeType end-to-end but the final points still differ, the divergence is a
+point-moving opcode computing a slightly different displacement from an input that never reaches the
+stack (e.g. a CVT value). To find which instruction, compare the point coordinate itself per
+instruction. `ft_point_trace.c` is the FreeType half (build instructions are in its header comment);
+it needs a **static** FreeType built with the bytecode interpreter so it can link the internal
+`TT_RunIns` and single-step via the debug hook.
+
+```sh
+# FreeType per-instruction point trace (point 8 of glyph 648):
+./ft_point_trace ../LiberationSans-Regular.ttf 648 11 8 > /tmp/ft-pt.txt
+
+# FontBox per-instruction point trace for the same point:
+mvn -pl fontbox test -Dtest=GlyphTraceTool -Denforcer.skip=true \
+    -Dtrace.gid=648 -Dtrace.ppem=11 -Dtrace.point=8 -Dtrace.out=/tmp/our-pt.txt
+
+# diff the point column:
+python3 trace_diff.py --gid 648 --ppem 11 --ours /tmp/our-pt.txt --ft /tmp/ft-pt.txt --point
+```
+
+The output names the exact instruction whose result first differs - e.g. it localized the
+`a-circumflex` residual to a single `MIRP` (the circumflex height), where the point goes in equal
+(80,513) and comes out (80,512) in FreeType versus (80,484) in FontBox.
