@@ -180,6 +180,17 @@ public class PageDrawer extends PDFGraphicsStreamEngine
     private final Map<COSBase,Boolean> blendModeMap = new HashMap<>();
 
     /**
+     * Whether to grid-fit (TrueType-hint) embedded TrueType glyphs at render time. Off by default
+     * (preserves existing unhinted output); enable with
+     * {@code -Dorg.apache.pdfbox.rendering.hinting=true}.
+     */
+    private final boolean hintingEnabled =
+            "true".equalsIgnoreCase(System.getProperty("org.apache.pdfbox.rendering.hinting"));
+
+    /** Skip hinting once the transform shears/rotates by more than this fraction of its scale. */
+    private static final double HINTING_SHEAR_TOLERANCE = 0.01;
+
+    /**
     * Default annotations filter, returns all annotations
     */
     private AnnotationFilter annotationFilter = annotation -> true;
@@ -510,8 +521,40 @@ public class PageDrawer extends PDFGraphicsStreamEngine
             glyphCaches.put(font, cache);
         }
 
-        GeneralPath path = cache.getPathForCharacterCode(code);
+        int ppem = hintingEnabled ? hintingPpem(at) : 0;
+        GeneralPath path = ppem > 0 ? cache.getPathForCharacterCode(code, ppem)
+                : cache.getPathForCharacterCode(code);
         drawGlyph(path, font, code, displacement, at);
+    }
+
+    /**
+     * Derives the pixels-per-em for grid-fitting from the glyph-space-to-device transform, or returns
+     * 0 to signal "do not hint". Hinting is skipped when the transform rotates or shears (grid-fitting
+     * along device axes is only meaningful for an axis-aligned transform). The path fed through
+     * {@code at} is normalized to 1000 units/em, so one em is 1000 units in {@code at}'s input space.
+     *
+     * @param at the transform mapping normalized (1000/em) glyph coordinates to device space
+     * @return the ppem to hint at, or 0 to render unhinted
+     */
+    static int hintingPpem(AffineTransform at)
+    {
+        double scaleX = Math.hypot(at.getScaleX(), at.getShearY());
+        double scaleY = Math.hypot(at.getShearX(), at.getScaleY());
+        if (scaleX <= 0 || scaleY <= 0)
+        {
+            return 0;
+        }
+        // grid-fitting along the device axes only makes sense for an axis-aligned transform (scale and
+        // axis flips are fine). The shear terms are zero exactly when the transform is axis-aligned; any
+        // rotation or shear makes them non-zero, so skip hinting in that case.
+        double scale = Math.max(scaleX, scaleY);
+        if (Math.abs(at.getShearX()) > HINTING_SHEAR_TOLERANCE * scale
+                || Math.abs(at.getShearY()) > HINTING_SHEAR_TOLERANCE * scale)
+        {
+            return 0;
+        }
+        int ppem = (int) Math.round(1000.0 * scaleY);
+        return ppem > 0 ? ppem : 0;
     }
 
     /**

@@ -718,7 +718,17 @@ public class PDType0Font extends PDFont implements PDVectorFont
     {
         return descendantFont.getNormalizedPath(code);
     }
-    
+
+    @Override
+    public GeneralPath getHintedNormalizedPath(int code, int ppem) throws IOException
+    {
+        if (descendantFont instanceof PDCIDFontType2)
+        {
+            return ((PDCIDFontType2) descendantFont).getHintedNormalizedPath(code, ppem);
+        }
+        return null;
+    }
+
     @Override
     public boolean hasGlyph(int code) throws IOException
     {

@@ -453,6 +453,31 @@ public class PDCIDFontType2 extends PDCIDFont
     }
 
     @Override
+    public GeneralPath getHintedNormalizedPath(int code, int ppem) throws IOException
+    {
+        if (!isEmbedded() || (otf != null && otf.isPostScript()))
+        {
+            return null;
+        }
+        int gid = codeToGID(code);
+        if (gid == 0)
+        {
+            return null;
+        }
+        GeneralPath path = ttf.getHintedPath(gid, ppem);
+        if (path == null)
+        {
+            return null;
+        }
+        if (ttf.getUnitsPerEm() != 1000)
+        {
+            float scale = 1000f / ttf.getUnitsPerEm();
+            path.transform(AffineTransform.getScaleInstance(scale, scale));
+        }
+        return path;
+    }
+
+    @Override
     public GeneralPath getNormalizedPath(int code) throws IOException
     {
         GeneralPath path = null;
