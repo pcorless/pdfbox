@@ -249,22 +249,17 @@ class GlyphHinter
         int pointCount = composite.getPointCount();
         int contourCount = composite.getContourCount();
         Zone zone = new Zone(pointCount + 4, contourCount);
-        int[] curX = zone.getCurrentX();
-        int[] curY = zone.getCurrentY();
-        int[] orgX = zone.getOriginalX();
-        int[] orgY = zone.getOriginalY();
-        boolean[] onCurve = zone.getOnCurve();
 
         for (GlyfCompositeComp comp : composite.getComponents())
         {
-            assembleComponent(comp, ppem, depth, curX, curY, orgX, orgY, onCurve);
+            assembleComponent(comp, ppem, depth, zone);
         }
         int[] ends = zone.getContourEnds();
         for (int c = 0; c < contourCount; c++)
         {
             ends[c] = composite.getEndPtOfContours(c);
         }
-        appendPhantomPoints(glyph, gid, ppem, pointCount, orgX, orgY, curX, curY);
+        appendPhantomPoints(glyph, gid, ppem, pointCount, zone);
 
         int[] instructions = composite.getInstructions();
         if (instructions != null && instructions.length > 0)
@@ -279,8 +274,8 @@ class GlyphHinter
      * arrays. The component's grid-fitted outline goes to the current arrays and its scaled-but-unhinted
      * outline to the original arrays, so the composite's instructions can measure original distances.
      */
-    private void assembleComponent(GlyfCompositeComp comp, int ppem, int depth, int[] curX,
-            int[] curY, int[] orgX, int[] orgY, boolean[] onCurve) throws IOException
+    private void assembleComponent(GlyfCompositeComp comp, int ppem, int depth, Zone zone)
+            throws IOException
     {
         int componentGid = comp.getGlyphIndex();
         int first = comp.getFirstIndex();
@@ -296,14 +291,19 @@ class GlyphHinter
             cgd.resolve();
         }
         int count = cgd.getPointCount();
+        boolean[] onCurve = zone.getOnCurve();
 
-        // scaled-but-unhinted component points (the "original" outline)
+        // scaled-but-unhinted component points (the "original" outline) and the unscaled font-unit ones
         int[] cOrgX = new int[count];
         int[] cOrgY = new int[count];
+        int[] cUnsX = new int[count];
+        int[] cUnsY = new int[count];
         for (int k = 0; k < count; k++)
         {
-            cOrgX[k] = Fixed.scale(cgd.getXCoordinate(k), ppem, unitsPerEm);
-            cOrgY[k] = Fixed.scale(cgd.getYCoordinate(k), ppem, unitsPerEm);
+            cUnsX[k] = cgd.getXCoordinate(k);
+            cUnsY[k] = cgd.getYCoordinate(k);
+            cOrgX[k] = Fixed.scale(cUnsX[k], ppem, unitsPerEm);
+            cOrgY[k] = Fixed.scale(cUnsY[k], ppem, unitsPerEm);
             onCurve[first + k] = (cgd.getFlags(k) & GlyfDescript.ON_CURVE) != 0;
         }
 
@@ -318,16 +318,26 @@ class GlyphHinter
         }
 
         // device-space offset (FreeType does not grid-round the component offset here, even when
-        // ROUND_XY_TO_GRID is set, so neither do we)
+        // ROUND_XY_TO_GRID is set, so neither do we); the unscaled offset stays in font units
         int offsetX = Fixed.scale(comp.getXTranslate(), ppem, unitsPerEm);
         int offsetY = Fixed.scale(comp.getYTranslate(), ppem, unitsPerEm);
+        int unsOffsetX = comp.getXTranslate();
+        int unsOffsetY = comp.getYTranslate();
 
+        int[] curX = zone.getCurrentX();
+        int[] curY = zone.getCurrentY();
+        int[] orgX = zone.getOriginalX();
+        int[] orgY = zone.getOriginalY();
+        int[] unsX = zone.getUnscaledX();
+        int[] unsY = zone.getUnscaledY();
         for (int k = 0; k < count; k++)
         {
             orgX[first + k] = comp.scaleX(cOrgX[k], cOrgY[k]) + offsetX;
             orgY[first + k] = comp.scaleY(cOrgX[k], cOrgY[k]) + offsetY;
             curX[first + k] = comp.scaleX(cCurX[k], cCurY[k]) + offsetX;
             curY[first + k] = comp.scaleY(cCurX[k], cCurY[k]) + offsetY;
+            unsX[first + k] = comp.scaleX(cUnsX[k], cUnsY[k]) + unsOffsetX;
+            unsY[first + k] = comp.scaleY(cUnsX[k], cUnsY[k]) + unsOffsetY;
         }
     }
 
@@ -367,11 +377,17 @@ class GlyphHinter
         int[] curY = zone.getCurrentY();
         int[] orgX = zone.getOriginalX();
         int[] orgY = zone.getOriginalY();
+        int[] unsX = zone.getUnscaledX();
+        int[] unsY = zone.getUnscaledY();
         boolean[] onCurve = zone.getOnCurve();
         for (int i = 0; i < pointCount; i++)
         {
-            int x = Fixed.scale(gd.getXCoordinate(i), ppem, unitsPerEm);
-            int y = Fixed.scale(gd.getYCoordinate(i), ppem, unitsPerEm);
+            int fx = gd.getXCoordinate(i);
+            int fy = gd.getYCoordinate(i);
+            unsX[i] = fx;
+            unsY[i] = fy;
+            int x = Fixed.scale(fx, ppem, unitsPerEm);
+            int y = Fixed.scale(fy, ppem, unitsPerEm);
             orgX[i] = x;
             orgY[i] = y;
             curX[i] = x;
@@ -383,12 +399,12 @@ class GlyphHinter
         {
             ends[c] = gd.getEndPtOfContours(c);
         }
-        appendPhantomPoints(glyph, gid, ppem, pointCount, orgX, orgY, curX, curY);
+        appendPhantomPoints(glyph, gid, ppem, pointCount, zone);
         return zone;
     }
 
-    private void appendPhantomPoints(GlyphData glyph, int gid, int ppem, int pointCount, int[] orgX,
-            int[] orgY, int[] curX, int[] curY) throws IOException
+    private void appendPhantomPoints(GlyphData glyph, int gid, int ppem, int pointCount, Zone zone)
+            throws IOException
     {
         HorizontalMetricsTable hmtx = font.getHorizontalMetrics();
         int advanceWidth = hmtx != null ? hmtx.getAdvanceWidth(gid) : unitsPerEm;
@@ -402,11 +418,13 @@ class GlyphHinter
         for (int i = 0; i < 4; i++)
         {
             int index = pointCount + i;
-            orgX[index] = Fixed.scale(px[i], ppem, unitsPerEm);
-            orgY[index] = Fixed.scale(py[i], ppem, unitsPerEm);
+            zone.getUnscaledX()[index] = px[i];
+            zone.getUnscaledY()[index] = py[i];
+            zone.getOriginalX()[index] = Fixed.scale(px[i], ppem, unitsPerEm);
+            zone.getOriginalY()[index] = Fixed.scale(py[i], ppem, unitsPerEm);
             // FreeType rounds the phantom points to the grid before running the glyph program
-            curX[index] = Fixed.round(orgX[index]);
-            curY[index] = Fixed.round(orgY[index]);
+            zone.getCurrentX()[index] = Fixed.round(zone.getOriginalX()[index]);
+            zone.getCurrentY()[index] = Fixed.round(zone.getOriginalY()[index]);
         }
     }
 

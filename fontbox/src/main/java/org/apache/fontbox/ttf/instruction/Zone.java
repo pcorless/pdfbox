@@ -30,6 +30,8 @@ public class Zone
     private final int[] currentY;
     private final int[] originalX;
     private final int[] originalY;
+    private final int[] unscaledX;
+    private final int[] unscaledY;
     private final boolean[] touchedX;
     private final boolean[] touchedY;
     private final boolean[] onCurve;
@@ -47,6 +49,8 @@ public class Zone
         currentY = new int[pointCount];
         originalX = new int[pointCount];
         originalY = new int[pointCount];
+        unscaledX = new int[pointCount];
+        unscaledY = new int[pointCount];
         touchedX = new boolean[pointCount];
         touchedY = new boolean[pointCount];
         onCurve = new boolean[pointCount];
@@ -81,6 +85,22 @@ public class Zone
     public int[] getOriginalY()
     {
         return originalY;
+    }
+
+    /**
+     * @return the original <em>unscaled</em> x coordinates in font units. Interpolation and relative
+     * measurements use these for the ratio, matching FreeType's {@code orus}, because the unrounded
+     * font-unit values preserve precision the scaled F26Dot6 originals would lose.
+     */
+    public int[] getUnscaledX()
+    {
+        return unscaledX;
+    }
+
+    /** @return the original unscaled y coordinates in font units */
+    public int[] getUnscaledY()
+    {
+        return unscaledY;
     }
 
     /** @return per-point touch flags for the x axis */

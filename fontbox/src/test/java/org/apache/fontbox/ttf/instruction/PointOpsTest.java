@@ -43,6 +43,9 @@ class PointOpsTest
         {
             zone.getOriginalX()[i] = xs[i];
             zone.getCurrentX()[i] = xs[i];
+            // these synthetic tests work directly in device units, so the unscaled originals (used by
+            // IP for its interpolation ratio) mirror the scaled ones
+            zone.getUnscaledX()[i] = xs[i];
         }
         zone.getContourEnds()[0] = xs.length - 1;
         return zone;

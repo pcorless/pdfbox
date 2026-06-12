@@ -45,27 +45,26 @@ class GoldenHintingTest
     private static final int[] PPEMS = { 11, 13, 16, 24 };
 
     /**
-     * Simple (non-composite) glyphs match FreeType almost exactly: assert a hard 1px ceiling and that
-     * essentially all coordinates are within one F26Dot6 unit (1/64 px). Current state ~98.6% within 1
-     * ULP, ~60% byte-exact; the few outliers cluster on the digit '3' at 11ppem.
+     * Simple (non-composite) glyphs match FreeType to within one F26Dot6 unit (1/64 px) on every
+     * coordinate - 100% within 1 ULP, ~78% byte-exact - so the bounds are tight. The remaining 1-ULP
+     * differences are interpolation rounding details that don't cross a pixel boundary.
      */
     @Test
     void testSimpleGlyphsAgainstFreeType() throws IOException
     {
         Stats s = compare(false);
-        assertTrue(s.worstDelta <= 64, s.summary("simple"));
-        assertTrue(s.withinOnePercent() >= 98, s.summary("simple"));
+        assertTrue(s.worstDelta <= 2, s.summary("simple"));
+        assertTrue(s.withinOnePercent() >= 99, s.summary("simple"));
     }
 
     /**
      * Composite glyphs (accented letters) are assembled from independently hinted components, so their
-     * bases grid-fit exactly. The diacritic marks (also exact in isolation) inherit a residual of up to
-     * ~1.6px from the composite's own instructions repositioning them - the same small-glyph rounding
-     * residual that affects simple glyphs at small ppem. ~73% of coordinates are within 1 ULP. Bounds
-     * are looser and best-effort.
+     * bases grid-fit exactly. A residual of up to ~1.6px remains where the composite's own instructions
+     * reposition a diacritic (e.g. the diaeresis height on 'U-umlaut'); ~74% of coordinates are within 1
+     * ULP. Bounds are looser and best-effort.
      * <p>
-     * TODO tighten as that residual is driven down; consider SCALED_COMPONENT_OFFSET / point-matching /
-     * USE_MY_METRICS if a font needs them.
+     * TODO tighten the diacritic-positioning residual; consider SCALED_COMPONENT_OFFSET / point-matching
+     * / USE_MY_METRICS if a font needs them.
      */
     @Test
     void testCompositeGlyphsAgainstFreeType() throws IOException
