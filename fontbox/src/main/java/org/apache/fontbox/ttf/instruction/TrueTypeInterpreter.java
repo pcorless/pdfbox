@@ -916,15 +916,25 @@ public class TrueTypeInterpreter
     private void doShp(ExecutionContext ctx, boolean useRp1)
     {
         GraphicsState gs = ctx.getGraphicsState();
-        int shift = referenceShift(ctx, useRp1);
+        int ref = referencePoint(gs, useRp1);
+        Zone refZone = referenceZone(ctx, useRp1);
+        int shift = referenceShift(ctx, refZone, ref);
         Zone zp2 = ctx.getZone(gs.getZp2());
-        forEachLoopPoint(ctx, point -> ctx.movePoint(zp2, point, shift));
+        forEachLoopPoint(ctx, point ->
+        {
+            if (!(refZone == zp2 && point == ref))
+            {
+                ctx.movePoint(zp2, point, shift);
+            }
+        });
     }
 
     private void doShc(ExecutionContext ctx, boolean useRp1)
     {
         GraphicsState gs = ctx.getGraphicsState();
-        int shift = referenceShift(ctx, useRp1);
+        int ref = referencePoint(gs, useRp1);
+        Zone refZone = referenceZone(ctx, useRp1);
+        int shift = referenceShift(ctx, refZone, ref);
         int contour = ctx.pop();
         Zone zp2 = ctx.getZone(gs.getZp2());
         int[] ends = zp2.getContourEnds();
@@ -935,40 +945,47 @@ public class TrueTypeInterpreter
         int start = contour == 0 ? 0 : ends[contour - 1] + 1;
         for (int i = start; i <= ends[contour]; i++)
         {
-            ctx.movePoint(zp2, i, shift);
+            // FreeType's SHC does not move the reference point itself (it has already moved)
+            if (!(refZone == zp2 && i == ref))
+            {
+                ctx.movePoint(zp2, i, shift);
+            }
         }
     }
 
     private void doShz(ExecutionContext ctx, boolean useRp1)
     {
         GraphicsState gs = ctx.getGraphicsState();
-        int shift = referenceShift(ctx, useRp1);
+        int ref = referencePoint(gs, useRp1);
+        Zone refZone = referenceZone(ctx, useRp1);
+        int shift = referenceShift(ctx, refZone, ref);
         int zoneNumber = ctx.pop();
         Zone zone = ctx.getZone(zoneNumber);
         for (int i = 0; i < zone.getPointCount(); i++)
         {
-            ctx.movePoint(zone, i, shift);
+            if (!(refZone == zone && i == ref))
+            {
+                ctx.movePoint(zone, i, shift);
+            }
         }
     }
 
-    /** The projected distance a reference point (rp1 in zp0, or rp2 in zp1) has been moved. */
-    private static int referenceShift(ExecutionContext ctx, boolean useRp1)
+    private static int referencePoint(GraphicsState gs, boolean useRp1)
+    {
+        return useRp1 ? gs.getRp1() : gs.getRp2();
+    }
+
+    private static Zone referenceZone(ExecutionContext ctx, boolean useRp1)
     {
         GraphicsState gs = ctx.getGraphicsState();
-        int ref;
-        Zone zone;
-        if (useRp1)
-        {
-            ref = gs.getRp1();
-            zone = ctx.getZone(gs.getZp0());
-        }
-        else
-        {
-            ref = gs.getRp2();
-            zone = ctx.getZone(gs.getZp1());
-        }
-        return ctx.project(zone.getCurrentX()[ref] - zone.getOriginalX()[ref],
-                zone.getCurrentY()[ref] - zone.getOriginalY()[ref]);
+        return ctx.getZone(useRp1 ? gs.getZp0() : gs.getZp1());
+    }
+
+    /** The projected distance the reference point (rp1 in zp0, or rp2 in zp1) has been moved. */
+    private static int referenceShift(ExecutionContext ctx, Zone refZone, int ref)
+    {
+        return ctx.project(refZone.getCurrentX()[ref] - refZone.getOriginalX()[ref],
+                refZone.getCurrentY()[ref] - refZone.getOriginalY()[ref]);
     }
 
     private void doMDRP(ExecutionContext ctx, int op)
