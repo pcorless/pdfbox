@@ -230,4 +230,67 @@ class PointOpsTest
         interp.run(ctx, new BytecodeStream(new byte[] { (byte) 0xB0, 0, 0x46 }));
         assertEquals(192, ctx.peek(0));
     }
+
+    @Test
+    void testIsectMovesPointToLineIntersection()
+    {
+        TrueTypeInterpreter interp = interpreter();
+        // p0 = the point to move; line A = horizontal y=64 (p1,p2); line B = vertical x=64 (p3,p4)
+        Zone zone = new Zone(5, 1);
+        setPoint(zone, 0, 0, 0);
+        setPoint(zone, 1, 0, 64);
+        setPoint(zone, 2, 128, 64);
+        setPoint(zone, 3, 64, 0);
+        setPoint(zone, 4, 64, 128);
+        ExecutionContext ctx = context(interp, zone);
+        // push p0,a0,a1,b0,b1 = 0 1 2 3 4 ; ISECT (0x0F) pops b1,b0,a1,a0,point
+        interp.run(ctx, new BytecodeStream(
+                new byte[] { (byte) 0xB4, 0, 1, 2, 3, 4, 0x0F }));
+        assertEquals(64, zone.getCurrentX()[0]);
+        assertEquals(64, zone.getCurrentY()[0]);
+        assertTrue(zone.getTouchedX()[0]);
+        assertTrue(zone.getTouchedY()[0]);
+    }
+
+    // --- oracle-free invariant checks ------------------------------------
+
+    @Test
+    void testIupNeverMovesATouchedPoint()
+    {
+        // invariant: IUP leaves every already-touched point exactly where it is
+        TrueTypeInterpreter interp = interpreter();
+        Zone zone = lineZone(0, 50, 100);
+        zone.getTouchedX()[1] = true;
+        zone.getCurrentX()[1] = 77; // a touched point at a deliberately off-grid position
+        ExecutionContext ctx = context(interp, zone);
+        interp.run(ctx, new BytecodeStream(new byte[] { 0x31 })); // IUP[x]
+        assertEquals(77, zone.getCurrentX()[1]);
+    }
+
+    @Test
+    void testTouchedPointsLandOnGridUnderRoundToGrid()
+    {
+        // invariant: under an integer round state, a rounded (touched) point lands on a grid line
+        TrueTypeInterpreter interp = interpreter();
+        Zone zone = lineZone(100, 150, 77); // off-grid positions
+        ExecutionContext ctx = context(interp, zone); // default round state is round-to-grid
+        // MDAP[1] each point (PUSHB[0] n ; MDAP[1])
+        interp.run(ctx, new BytecodeStream(new byte[] {
+                (byte) 0xB0, 0, 0x2F, (byte) 0xB0, 1, 0x2F, (byte) 0xB0, 2, 0x2F }));
+        for (int i = 0; i < 3; i++)
+        {
+            assertTrue(zone.getTouchedX()[i], "point " + i + " should be touched");
+            assertEquals(0, zone.getCurrentX()[i] % Fixed.ONE, "point " + i + " off the grid");
+        }
+    }
+
+    private static void setPoint(Zone zone, int i, int x, int y)
+    {
+        zone.getCurrentX()[i] = x;
+        zone.getCurrentY()[i] = y;
+        zone.getOriginalX()[i] = x;
+        zone.getOriginalY()[i] = y;
+        zone.getUnscaledX()[i] = x;
+        zone.getUnscaledY()[i] = y;
+    }
 }

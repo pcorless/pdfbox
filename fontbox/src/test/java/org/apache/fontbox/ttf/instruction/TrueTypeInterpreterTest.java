@@ -183,6 +183,16 @@ class TrueTypeInterpreterTest
     }
 
     @Test
+    void testIdefDefinesOpcode()
+    {
+        // IDEF binds reserved opcode 0x83 to "push 42"; invoking 0x83 then runs that body.
+        // PUSHB[0] 0x83 ; IDEF ; PUSHB[0] 42 ; ENDF ; <0x83>
+        ExecutionContext ctx = interpreter().executeProgram(
+                new byte[] { PUSHB1, (byte) 0x83, (byte) 0x89, PUSHB1, 42, ENDF, (byte) 0x83 }, 16);
+        assertEquals(42, ctx.peek(0));
+    }
+
+    @Test
     void testUndefinedFunctionThrows()
     {
         assertThrows(HintingException.class,
@@ -199,9 +209,9 @@ class TrueTypeInterpreterTest
     @Test
     void testUnsupportedOpcodeThrows()
     {
-        // 0x0F (ISECT) is not yet implemented; unimplemented opcodes must throw, not no-op
+        // 0x28 is a reserved/unused opcode; unimplemented opcodes must throw, not no-op
         assertThrows(HintingException.class,
-                () -> interpreter().executeProgram(new byte[] { 0x0F }, 16));
+                () -> interpreter().executeProgram(new byte[] { 0x28 }, 16));
     }
 
     @Test

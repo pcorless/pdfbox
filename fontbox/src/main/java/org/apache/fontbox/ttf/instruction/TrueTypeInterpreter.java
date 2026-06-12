@@ -56,6 +56,7 @@ public class TrueTypeInterpreter
 
     private final OpHandler[] dispatch = new OpHandler[256];
     private final Map<Integer, FunctionDef> functions = new HashMap<>();
+    private final Map<Integer, FunctionDef> instructionDefs = new HashMap<>();
 
     private final int maxStackElements;
     private final int maxStorage;
@@ -129,6 +130,7 @@ public class TrueTypeInterpreter
     public void prepareFontProgram()
     {
         functions.clear();
+        instructionDefs.clear();
         if (fontProgram == null || fontProgram.length == 0)
         {
             return;
@@ -261,6 +263,12 @@ public class TrueTypeInterpreter
         {
             throw new HintingException("call to undefined function " + functionNumber);
         }
+        callBody(ctx, def);
+    }
+
+    /** Runs a function/instruction body from its entry point until the matching {@code ENDF}. */
+    private void callBody(ExecutionContext ctx, FunctionDef def)
+    {
         if (ctx.getCallDepth() >= MAX_CALL_DEPTH)
         {
             throw new HintingException("maximum call depth " + MAX_CALL_DEPTH + " exceeded");
@@ -284,6 +292,15 @@ public class TrueTypeInterpreter
         int functionNumber = ctx.pop();
         BytecodeStream s = ctx.getStream();
         functions.put(functionNumber, new FunctionDef(s.getCode(), s.position()));
+        skipFunctionBody(s);
+    }
+
+    /** IDEF: binds the opcode on top of the stack to the following instructions (until ENDF). */
+    private void defineInstruction(ExecutionContext ctx)
+    {
+        int opcode = ctx.pop();
+        BytecodeStream s = ctx.getStream();
+        instructionDefs.put(opcode & 0xFF, new FunctionDef(s.getCode(), s.position()));
         skipFunctionBody(s);
     }
 
@@ -396,6 +413,13 @@ public class TrueTypeInterpreter
             final int opcode = i;
             dispatch[i] = ctx ->
             {
+                // an opcode with no built-in handler may have been given one by IDEF
+                FunctionDef def = instructionDefs.get(opcode);
+                if (def != null)
+                {
+                    callBody(ctx, def);
+                    return;
+                }
                 throw new HintingException(
                         String.format("unsupported TrueType opcode 0x%02X", opcode));
             };
@@ -563,6 +587,7 @@ public class TrueTypeInterpreter
         };
         dispatch[FDEF] = this::defineFunction;
         dispatch[ENDF] = ctx -> ctx.setReturnFromFunction(true);
+        dispatch[0x89] = this::defineInstruction; // IDEF
         dispatch[0x2B] = ctx -> callFunction(ctx, ctx.pop());            // CALL
         dispatch[0x2A] = ctx ->                                          // LOOPCALL
         {
@@ -790,6 +815,7 @@ public class TrueTypeInterpreter
 
     private void installPointOps()
     {
+        dispatch[0x0F] = this::doIsect;              // ISECT
         dispatch[0x2E] = ctx -> doMDAP(ctx, false);  // MDAP[0] no round
         dispatch[0x2F] = ctx -> doMDAP(ctx, true);   // MDAP[1] round
         dispatch[0x3E] = ctx -> doMIAP(ctx, false);  // MIAP[0] no round
@@ -816,6 +842,53 @@ public class TrueTypeInterpreter
             final int code = op;
             dispatch[op] = ctx -> doMIRP(ctx, code); // MIRP[abcde]
         }
+    }
+
+    /**
+     * ISECT: moves a point to the intersection of line A (a0,a1 in zp1) and line B (b0,b1 in zp0).
+     * Mirrors FreeType's Ins_ISECT, including the parallel-lines fallback to the four-point average.
+     */
+    private void doIsect(ExecutionContext ctx)
+    {
+        GraphicsState gs = ctx.getGraphicsState();
+        int b1 = ctx.pop();
+        int b0 = ctx.pop();
+        int a1 = ctx.pop();
+        int a0 = ctx.pop();
+        int point = ctx.pop();
+        Zone za = ctx.getZone(gs.getZp1());
+        Zone zb = ctx.getZone(gs.getZp0());
+        Zone zp = ctx.getZone(gs.getZp2());
+
+        int a0x = za.getCurrentX()[a0];
+        int a0y = za.getCurrentY()[a0];
+        int dax = za.getCurrentX()[a1] - a0x;
+        int day = za.getCurrentY()[a1] - a0y;
+        int b0x = zb.getCurrentX()[b0];
+        int b0y = zb.getCurrentY()[b0];
+        int dbx = zb.getCurrentX()[b1] - b0x;
+        int dby = zb.getCurrentY()[b1] - b0y;
+        int dx = b0x - a0x;
+        int dy = b0y - a0y;
+
+        int discriminant = Fixed.mulDiv(dax, -dby, 0x40) + Fixed.mulDiv(day, dbx, 0x40);
+        int dotproduct = Fixed.mulDiv(dax, dbx, 0x40) + Fixed.mulDiv(day, dby, 0x40);
+
+        // reject grazing intersections of nearly parallel lines, as FreeType does
+        if (Math.abs((long) discriminant * 0x40) > Math.abs((long) dotproduct))
+        {
+            int val = Fixed.mulDiv(dx, -dby, 0x40) + Fixed.mulDiv(dy, dbx, 0x40);
+            zp.getCurrentX()[point] = a0x + Fixed.mulDiv(val, dax, discriminant);
+            zp.getCurrentY()[point] = a0y + Fixed.mulDiv(val, day, discriminant);
+        }
+        else
+        {
+            // parallel: average of the four line points
+            zp.getCurrentX()[point] = (a0x + za.getCurrentX()[a1] + b0x + zb.getCurrentX()[b1]) / 2 / 2;
+            zp.getCurrentY()[point] = (a0y + za.getCurrentY()[a1] + b0y + zb.getCurrentY()[b1]) / 2 / 2;
+        }
+        zp.getTouchedX()[point] = true;
+        zp.getTouchedY()[point] = true;
     }
 
     private void doMDAP(ExecutionContext ctx, boolean round)
