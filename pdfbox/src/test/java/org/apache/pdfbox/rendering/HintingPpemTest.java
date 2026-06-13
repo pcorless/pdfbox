@@ -54,18 +54,24 @@ class HintingPpemTest
     }
 
     @Test
-    void testRotationIsNotHinted()
+    void testRotationIsStillHinted()
     {
+        // rotated text (e.g. 90-degree vertical CJK) is grid-fit in upright glyph space at the
+        // transform's scale; the rotation is applied afterwards. ppem is the rotation-invariant scale.
         AffineTransform at = AffineTransform.getScaleInstance(0.016, 0.016);
         at.rotate(Math.toRadians(30));
-        assertEquals(0, PageDrawer.hintingPpem(at));
+        assertEquals(16, PageDrawer.hintingPpem(at));
+
+        AffineTransform vertical = new AffineTransform(0, 0.016, -0.016, 0, 0, 0); // 90-degree rotation
+        assertEquals(16, PageDrawer.hintingPpem(vertical));
     }
 
     @Test
-    void testShearIsNotHinted()
+    void testShearTakesVerticalScale()
     {
+        // a sheared (fake-italic) transform is hinted at its vertical-basis magnitude
         AffineTransform at = new AffineTransform(0.016, 0, 0.006, 0.016, 0, 0);
-        assertEquals(0, PageDrawer.hintingPpem(at));
+        assertEquals((int) Math.round(1000 * Math.hypot(0.006, 0.016)), PageDrawer.hintingPpem(at));
     }
 
     @Test

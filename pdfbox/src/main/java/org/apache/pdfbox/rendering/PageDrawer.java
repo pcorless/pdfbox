@@ -187,9 +187,6 @@ public class PageDrawer extends PDFGraphicsStreamEngine
     private final boolean hintingEnabled =
             "true".equalsIgnoreCase(System.getProperty("org.apache.pdfbox.rendering.hinting"));
 
-    /** Skip hinting once the transform shears/rotates by more than this fraction of its scale. */
-    private static final double HINTING_SHEAR_TOLERANCE = 0.01;
-
     /**
     * Default annotations filter, returns all annotations
     */
@@ -529,8 +526,11 @@ public class PageDrawer extends PDFGraphicsStreamEngine
 
     /**
      * Derives the pixels-per-em for grid-fitting from the glyph-space-to-device transform, or returns
-     * 0 to signal "do not hint". Hinting is skipped when the transform rotates or shears (grid-fitting
-     * along device axes is only meaningful for an axis-aligned transform). The path fed through
+     * 0 when the glyph is too small / degenerate to hint. The ppem is the magnitude of the transform's
+     * vertical basis vector, i.e. the device height of one em, so it is correct under rotation: the
+     * glyph is grid-fit in its own (upright) coordinate space and the full transform — including any
+     * rotation — is then applied to the hinted outline by the caller, exactly as FreeType does for
+     * rotated text (90-degree vertical CJK columns being the common case). The path fed through
      * {@code at} is normalized to 1000 units/em, so one em is 1000 units in {@code at}'s input space.
      *
      * @param at the transform mapping normalized (1000/em) glyph coordinates to device space
@@ -538,21 +538,8 @@ public class PageDrawer extends PDFGraphicsStreamEngine
      */
     static int hintingPpem(AffineTransform at)
     {
-        double scaleX = Math.hypot(at.getScaleX(), at.getShearY());
+        // length of the y basis vector = device pixels per normalized unit, rotation-invariant
         double scaleY = Math.hypot(at.getShearX(), at.getScaleY());
-        if (scaleX <= 0 || scaleY <= 0)
-        {
-            return 0;
-        }
-        // grid-fitting along the device axes only makes sense for an axis-aligned transform (scale and
-        // axis flips are fine). The shear terms are zero exactly when the transform is axis-aligned; any
-        // rotation or shear makes them non-zero, so skip hinting in that case.
-        double scale = Math.max(scaleX, scaleY);
-        if (Math.abs(at.getShearX()) > HINTING_SHEAR_TOLERANCE * scale
-                || Math.abs(at.getShearY()) > HINTING_SHEAR_TOLERANCE * scale)
-        {
-            return 0;
-        }
         int ppem = (int) Math.round(1000.0 * scaleY);
         return ppem > 0 ? ppem : 0;
     }
