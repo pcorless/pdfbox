@@ -221,6 +221,18 @@ class PointOpsTest
     }
 
     @Test
+    void testMdMeasuresSignedDistance()
+    {
+        // MD measures project(zp0[p1] - zp1[p2]); p1 is the deeper operand, p2 the top (FreeType sign).
+        TrueTypeInterpreter interp = interpreter();
+        Zone zone = lineZone(0, 100); // point 0 at x=0, point 1 at x=100
+        ExecutionContext ctx = context(interp, zone);
+        // PUSHB[1] 0 1 (p1=0 deeper, p2=1 top) ; MD[grid] (0x49)
+        interp.run(ctx, new BytecodeStream(new byte[] { (byte) 0xB1, 0, 1, 0x49 }));
+        assertEquals(-100, ctx.peek(0)); // x0 - x1 = -100
+    }
+
+    @Test
     void testGcReadsProjectedCoordinate()
     {
         TrueTypeInterpreter interp = interpreter();

@@ -1379,13 +1379,14 @@ public class TrueTypeInterpreter
         int p1 = ctx.pop();
         Zone zp0 = ctx.getZone(gs.getZp0());
         Zone zp1 = ctx.getZone(gs.getZp1());
+        // FreeType measures project(zp0[p1] - zp1[p2]); p1 is the deeper operand, p2 the top
         if (original)
         {
-            ctx.push(ctx.dualProjectedDistance(zp1, p2, zp0, p1));
+            ctx.push(ctx.dualProjectedDistance(zp0, p1, zp1, p2));
         }
         else
         {
-            ctx.push(ctx.projectedDistance(zp1, p2, zp0, p1));
+            ctx.push(ctx.projectedDistance(zp0, p1, zp1, p2));
         }
     }
 
