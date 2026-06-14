@@ -1310,18 +1310,25 @@ public class TrueTypeInterpreter
         Zone z2 = ctx.getZone(gs.getZp2());
         int rp1 = gs.getRp1();
         int rp2 = gs.getRp2();
-        int curRp1 = ctx.project(z0.getCurrentX()[rp1], z0.getCurrentY()[rp1]);
-        // measure the original positions in unscaled font units (FreeType's orus) so the interpolation
+        // Measure the original positions in unscaled font units (FreeType's orus) so the interpolation
         // ratio keeps full precision; the scaled F26Dot6 originals round each coordinate and can shift
-        // an interpolated point by a unit, which a later rounding opcode then amplifies to a whole pixel
-        int orgRp1 = ctx.dualProject(z0.getUnscaledX()[rp1], z0.getUnscaledY()[rp1]);
+        // an interpolated point by a unit, which a later rounding opcode then amplifies to a whole pixel.
+        // Exception: twilight-zone points have no font-unit source, so their unscaled coordinates are
+        // (0,0); using them would collapse every original distance to zero. When any zone here is the
+        // twilight zone, FreeType measures the scaled originals instead, so we do the same.
+        boolean twilight = gs.getZp0() == 0 || gs.getZp1() == 0 || gs.getZp2() == 0;
+        int curRp1 = ctx.project(z0.getCurrentX()[rp1], z0.getCurrentY()[rp1]);
+        int orgRp1 = twilight ? ctx.dualProject(z0.getOriginalX()[rp1], z0.getOriginalY()[rp1])
+                : ctx.dualProject(z0.getUnscaledX()[rp1], z0.getUnscaledY()[rp1]);
         int curRp2 = ctx.project(z1.getCurrentX()[rp2], z1.getCurrentY()[rp2]);
-        int orgRp2 = ctx.dualProject(z1.getUnscaledX()[rp2], z1.getUnscaledY()[rp2]);
+        int orgRp2 = twilight ? ctx.dualProject(z1.getOriginalX()[rp2], z1.getOriginalY()[rp2])
+                : ctx.dualProject(z1.getUnscaledX()[rp2], z1.getUnscaledY()[rp2]);
         int orgRange = orgRp2 - orgRp1;
         int curRange = curRp2 - curRp1;
         forEachLoopPoint(ctx, point ->
         {
-            int orgP = ctx.dualProject(z2.getUnscaledX()[point], z2.getUnscaledY()[point]);
+            int orgP = twilight ? ctx.dualProject(z2.getOriginalX()[point], z2.getOriginalY()[point])
+                    : ctx.dualProject(z2.getUnscaledX()[point], z2.getUnscaledY()[point]);
             int curP = ctx.project(z2.getCurrentX()[point], z2.getCurrentY()[point]);
             int newP;
             if (orgRange == 0)

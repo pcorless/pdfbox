@@ -202,6 +202,40 @@ class PointOpsTest
     }
 
     @Test
+    void testIpInterpolatesTwilightPointsUsingScaledOriginals()
+    {
+        // Regression (PDFBOX-3293): twilight-zone points have no font-unit source, so their unscaled
+        // coordinates are (0,0). Measuring IP's interpolation ratio against those zeros collapses every
+        // interpolated point onto the reference point. A prep program that builds the x-height control
+        // value this way then yields 0, flattening whole glyphs onto the baseline at small ppem (e.g.
+        // lowercase 'm' in a gasp-less Arial subset at 7ppem). For twilight points IP must measure the
+        // scaled originals instead, exactly as FreeType's Ins_IP does.
+        TrueTypeInterpreter interp = interpreter();
+        GraphicsState gs = new GraphicsState();
+        gs.setZp0(0); // all three zone pointers reference the twilight zone
+        gs.setZp1(0);
+        gs.setZp2(0);
+        gs.setRp1(0);
+        gs.setRp2(2);
+        ExecutionContext ctx = interp.newContext(gs);
+        ctx.setPpem(16);
+        Zone twilight = ctx.getTwilightZone();
+        // anchors at originals 0 and 100; p2's current is stretched to 120. The unscaled coordinates
+        // stay (0,0) for every point, exactly as MIAP leaves freshly placed twilight points.
+        int[] xs = { 0, 50, 100 };
+        for (int p = 0; p < xs.length; p++)
+        {
+            twilight.getOriginalX()[p] = xs[p];
+            twilight.getCurrentX()[p] = xs[p];
+        }
+        twilight.getCurrentX()[2] = 120;
+        // PUSHB[0] 1 ; IP (0x39)
+        interp.run(ctx, new BytecodeStream(new byte[] { (byte) 0xB0, 1, 0x39 }));
+        // interpolate by the scaled originals: 0 + 50*(120-0)/100 = 60 (the unscaled zeros would give 0)
+        assertEquals(60, twilight.getCurrentX()[1]);
+    }
+
+    @Test
     void testSvtcaSetsProjectionVector()
     {
         TrueTypeInterpreter interp = interpreter();

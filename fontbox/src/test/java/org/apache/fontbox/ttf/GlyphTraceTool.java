@@ -52,7 +52,8 @@ class GlyphTraceTool
         TrueTypeFont font;
         try (InputStream is = new java.io.FileInputStream(fontPath))
         {
-            font = new TTFParser().parse(new RandomAccessReadBuffer(is));
+            // isEmbedded=true tolerates subset fonts that drop the otherwise-mandatory 'post' table
+            font = new TTFParser(true).parse(new RandomAccessReadBuffer(is));
         }
 
         PrintStream out = outPath != null ? new PrintStream(outPath, "UTF-8") : System.out;
