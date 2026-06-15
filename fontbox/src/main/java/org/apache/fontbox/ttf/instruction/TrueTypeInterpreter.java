@@ -681,8 +681,28 @@ public class TrueTypeInterpreter
             int result = 0;
             if ((selector & 0x0001) != 0)
             {
-                // report a rasterizer version; grayscale/rotation/stretch bits are added in Phase 3
-                result |= 35;
+                // rasterizer version 40: FreeType's "minimal" subpixel interpreter, which we mirror
+                // for grayscale antialiased rendering (lighter stems than the classic v35)
+                result |= 40;
+            }
+            // we always render grayscale-subpixel ("lean"), non-LCD: report the subpixel bits a v40
+            // grayscale rasterizer returns so fonts take their lighter ClearType-aware code paths.
+            // (the grayscale bit 12 is intentionally not set: FreeType clears exc->grayscale in lean mode)
+            if ((selector & 0x0040) != 0)
+            {
+                result |= 1 << 13; // subpixel hinting active
+            }
+            if ((selector & 0x0400) != 0)
+            {
+                result |= 1 << 17; // ClearType hinting active
+            }
+            if ((selector & 0x0800) != 0)
+            {
+                result |= 1 << 18; // subpixel positioned
+            }
+            if ((selector & 0x1000) != 0)
+            {
+                result |= 1 << 19; // grayscale ClearType
             }
             ctx.push(result);
         };
@@ -1191,6 +1211,16 @@ public class TrueTypeInterpreter
 
     private void doIup(ExecutionContext ctx, boolean xAxis)
     {
+        // record that IUP ran on this axis; under backward-compatibility, once both axes are done the
+        // glyph is frozen against further y moves (see ExecutionContext.movePoint)
+        if (xAxis)
+        {
+            ctx.setIupxCalled();
+        }
+        else
+        {
+            ctx.setIupyCalled();
+        }
         // IUP always operates on the glyph zone, directly on the x or y coordinate
         Zone zone = ctx.getZone(1);
         int[] cur = xAxis ? zone.getCurrentX() : zone.getCurrentY();
@@ -1418,11 +1448,34 @@ public class TrueTypeInterpreter
         {
             int point = ctx.pop();
             int arg = ctx.pop();
-            if (deltaTargetPpem(gs, arg, band) == ctx.getPpem())
+            if (deltaTargetPpem(gs, arg, band) == ctx.getPpem()
+                    && deltaPointAllowed(ctx, zone, point))
             {
                 ctx.movePoint(zone, point, decodeDelta(arg & 0x0F, gs.getDeltaShift()));
             }
         }
+    }
+
+    /**
+     * Backward-compatibility (v40 grayscale) gate for DELTAP: once IUP has run the delta is dropped,
+     * and before IUP it is applied only to points already touched in y (or, for composites, when the
+     * freedom vector has a y component). Outside backward-compatibility mode the delta always applies.
+     * This keeps DELTAP from nudging untouched points off their interpolated grayscale positions.
+     */
+    private static boolean deltaPointAllowed(ExecutionContext ctx, Zone zone, int point)
+    {
+        if (!ctx.isBackwardCompatibility())
+        {
+            return true;
+        }
+        if (ctx.isIupDone())
+        {
+            return false;
+        }
+        boolean touchedY = point >= 0 && point < zone.getTouchedY().length
+                && zone.getTouchedY()[point];
+        return touchedY
+                || (ctx.isComposite() && ctx.getGraphicsState().getFreedomVector().getY() != 0);
     }
 
     private void doDeltaC(ExecutionContext ctx, int band)
@@ -1473,7 +1526,16 @@ public class TrueTypeInterpreter
         {
             int selector = ctx.pop();
             int value = ctx.pop();
-            ctx.getGraphicsState().setInstructControl(value & selector);
+            if (selector == 3)
+            {
+                // native-ClearType fonts use INSTCTRL(L,3) to waive backward compatibility and program
+                // points to the grid directly; L==4 turns the v40 movement restrictions off
+                ctx.setBackwardCompatibility(value != 4);
+            }
+            else
+            {
+                ctx.getGraphicsState().setInstructControl(value & selector);
+            }
         };
     }
 

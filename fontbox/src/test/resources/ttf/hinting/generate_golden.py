@@ -53,8 +53,10 @@ PPEMS = [11, 13, 16, 24]
 # simple, well-hinted glyphs plus common composites (accented letters: base glyph + diacritic)
 CHARS = "HILEThoxn0123456789" + "áàâäãéèçñüÁÉÑÜ"
 
-# native bytecode hinting (no autohinter), monochrome target => classic full-pixel grid-fitting
-LOAD_FLAGS = freetype.FT_LOAD_NO_AUTOHINT | freetype.FT_LOAD_TARGET_MONO
+# native bytecode hinting (no autohinter), grayscale target => FreeType's v40 "minimal" subpixel
+# interpreter with backward-compatibility (no x grid-fitting, y frozen post-IUP). This matches how
+# PDFBox rasterizes (Java2D is always antialiased); see GlyphHinter / ExecutionContext.movePoint.
+LOAD_FLAGS = freetype.FT_LOAD_NO_AUTOHINT | freetype.FT_LOAD_TARGET_NORMAL
 
 
 def dump_font(font_name):

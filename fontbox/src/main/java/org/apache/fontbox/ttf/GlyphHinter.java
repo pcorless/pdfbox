@@ -266,7 +266,7 @@ class GlyphHinter
         }
         int pointCount = gd.getPointCount();
         Zone zone = buildZone(glyph, gd, gid, ppem, pointCount, gd.getContourCount());
-        runProgram(zone, instructions, ppem);
+        runProgram(zone, instructions, ppem, false);
         return new Hinted(gd, zone, pointCount);
     }
 
@@ -296,7 +296,7 @@ class GlyphHinter
         int[] instructions = composite.getInstructions();
         if (instructions != null && instructions.length > 0)
         {
-            runProgram(zone, instructions, ppem);
+            runProgram(zone, instructions, ppem, true);
         }
         return new Hinted(composite, zone, pointCount);
     }
@@ -377,13 +377,17 @@ class GlyphHinter
     }
 
     /** Clones the saved post-prep state, resets it for the glyph, and runs the program over the zone. */
-    private void runProgram(Zone zone, int[] instructions, int ppem)
+    private void runProgram(Zone zone, int[] instructions, int ppem, boolean composite)
     {
         GraphicsState gs = interpreter.getSavedState().copy();
         gs.resetForGlyph();
         ExecutionContext ctx = interpreter.newContext(gs);
         ctx.setPpem(ppem);
         ctx.setGlyphZone(zone);
+        // v40 grayscale "backward compatibility" applies to the glyph program only, never fpgm/prep
+        // (which build control values via twilight-zone x/y moves that must not be suppressed)
+        ctx.setBackwardCompatibility(true);
+        ctx.setComposite(composite);
         interpreter.run(ctx, new BytecodeStream(toByteArray(instructions)));
     }
 

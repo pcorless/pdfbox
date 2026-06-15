@@ -47,6 +47,14 @@ public class ExecutionContext
     private int callDepth;
     private boolean returnFromFunction;
 
+    // v40 "backward compatibility" (grayscale subpixel) state. When set, point moves in the x
+    // direction are suppressed so stems are not grid-fit and darkened under antialiasing, and y moves
+    // are frozen once IUP has run on both axes. Only enabled for the glyph program, never fpgm/prep.
+    private boolean backwardCompatibility;
+    private boolean iupxCalled;
+    private boolean iupyCalled;
+    private boolean composite;
+
     /**
      * @param interpreter the owning interpreter (for function calls)
      * @param graphicsState the graphics state this run starts from
@@ -322,14 +330,65 @@ public class ExecutionContext
         }
         if (fv.getX() != 0)
         {
-            zone.getCurrentX()[point] += Fixed.mulDiv(distance, fv.getX(), fDotP);
+            // backward-compatibility (v40 grayscale): never grid-fit in the x direction, so horizontal
+            // stems keep their natural sub-pixel position and are not darkened by antialiasing
+            if (!backwardCompatibility)
+            {
+                zone.getCurrentX()[point] += Fixed.mulDiv(distance, fv.getX(), fDotP);
+            }
             zone.getTouchedX()[point] = true;
         }
         if (fv.getY() != 0)
         {
-            zone.getCurrentY()[point] += Fixed.mulDiv(distance, fv.getY(), fDotP);
+            // y moves are allowed until IUP has run on both axes; afterwards the glyph is frozen
+            if (!(backwardCompatibility && iupxCalled && iupyCalled))
+            {
+                zone.getCurrentY()[point] += Fixed.mulDiv(distance, fv.getY(), fDotP);
+            }
             zone.getTouchedY()[point] = true;
         }
+    }
+
+    /** @return whether v40 backward-compatibility (grayscale subpixel) movement rules are active */
+    public boolean isBackwardCompatibility()
+    {
+        return backwardCompatibility;
+    }
+
+    /** @param value whether to apply v40 backward-compatibility movement rules (glyph program only) */
+    public void setBackwardCompatibility(boolean value)
+    {
+        this.backwardCompatibility = value;
+    }
+
+    /** Marks IUP[x] as having run; resets each program run. */
+    public void setIupxCalled()
+    {
+        this.iupxCalled = true;
+    }
+
+    /** Marks IUP[y] as having run; resets each program run. */
+    public void setIupyCalled()
+    {
+        this.iupyCalled = true;
+    }
+
+    /** @return whether IUP has run on both axes (the glyph is frozen for backward compatibility) */
+    public boolean isIupDone()
+    {
+        return iupxCalled && iupyCalled;
+    }
+
+    /** @return whether the running program belongs to a composite glyph */
+    public boolean isComposite()
+    {
+        return composite;
+    }
+
+    /** @param value whether the running program belongs to a composite glyph */
+    public void setComposite(boolean value)
+    {
+        this.composite = value;
     }
 
     // --- execution cursor and call state ---------------------------------
