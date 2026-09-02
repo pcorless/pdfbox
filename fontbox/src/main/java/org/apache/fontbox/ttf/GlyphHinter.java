@@ -56,6 +56,7 @@ class GlyphHinter
     private boolean initialized;
     private boolean available;
     private boolean tricky;
+    private boolean warned;
     private TrueTypeInterpreter interpreter;
     private GaspTable gasp;
     private int unitsPerEm;
@@ -372,8 +373,39 @@ class GlyphHinter
         }
         catch (IOException | RuntimeException e)
         {
-            LOG.warn("hinting failed for glyph {} at {}ppem, using raw outline", gid, ppem, e);
+            logFailure(gid, ppem, e);
             return null;
+        }
+    }
+
+    /**
+     * Reports a glyph that could not be hinted. Only the first failure in a font is a warning carrying
+     * the stack trace; the rest go to debug. Hinting is attempted per {@code (glyph, ppem)} pair, so a
+     * font whose bytecode never runs - a malformed program, or one using something unimplemented - would
+     * otherwise emit thousands of identical stack traces for a page of CJK text.
+     */
+    private void logFailure(int gid, int ppem, Exception e)
+    {
+        if (warned)
+        {
+            LOG.debug("hinting failed for glyph {} at {}ppem, using raw outline", gid, ppem, e);
+            return;
+        }
+        warned = true;
+        LOG.warn("hinting failed for glyph {} at {}ppem in font {}, using raw outline; further "
+                + "failures in this font are logged at debug level", gid, ppem, fontName(), e);
+    }
+
+    /** The font's PostScript name for the warning above, best-effort - we are already handling a fault. */
+    private String fontName()
+    {
+        try
+        {
+            return font.getName();
+        }
+        catch (IOException e)
+        {
+            return "<unknown>";
         }
     }
 
