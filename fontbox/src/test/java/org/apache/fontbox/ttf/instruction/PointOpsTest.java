@@ -62,7 +62,8 @@ class PointOpsTest
     @Test
     void testProjectionAndMove()
     {
-        ExecutionContext ctx = new ExecutionContext(null, new GraphicsState(), 16, 0, null, 0);
+        ExecutionContext ctx =
+                new ExecutionContext(null, new GraphicsState(), 16, new int[0], null, new Zone(0, 0));
         Zone zone = lineZone(100, 0);
         // default projection/freedom is the x axis: project returns the x coordinate
         assertEquals(100, ctx.project(zone.getCurrentX()[0], zone.getCurrentY()[0]));

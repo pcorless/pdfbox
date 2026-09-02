@@ -16,6 +16,8 @@
  */
 package org.apache.fontbox.ttf.instruction;
 
+import java.util.Arrays;
+
 /**
  * A set of points the interpreter can manipulate - either zone 0 (the twilight zone, holding phantom
  * reference points) or zone 1 (the glyph's own outline points plus its appended phantom points). Each
@@ -55,6 +57,25 @@ public class Zone
         touchedY = new boolean[pointCount];
         onCurve = new boolean[pointCount];
         contourEnds = new int[contourCount];
+    }
+
+    /**
+     * Zeroes every coordinate and flag. The twilight zone outlives a single program run - it is owned by
+     * the interpreter so values {@code prep} puts there survive into each glyph program - so it is reset
+     * rather than reallocated when the size changes, as FreeType does in {@code tt_size_run_prep}.
+     */
+    public void reset()
+    {
+        Arrays.fill(currentX, 0);
+        Arrays.fill(currentY, 0);
+        Arrays.fill(originalX, 0);
+        Arrays.fill(originalY, 0);
+        Arrays.fill(unscaledX, 0);
+        Arrays.fill(unscaledY, 0);
+        Arrays.fill(touchedX, false);
+        Arrays.fill(touchedY, false);
+        Arrays.fill(onCurve, false);
+        Arrays.fill(contourEnds, 0);
     }
 
     /** @return the number of points in this zone */

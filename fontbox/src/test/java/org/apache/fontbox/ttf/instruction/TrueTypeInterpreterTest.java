@@ -54,6 +54,11 @@ class TrueTypeInterpreterTest
     private static final byte CALL = 0x2B;
     private static final byte LOOPCALL = 0x2A;
     private static final byte MPPEM = 0x4B;
+    private static final byte WS = 0x42;
+    private static final byte RS = 0x43;
+    private static final byte SZPS = 0x16;
+    private static final byte SCFS = 0x48;
+    private static final byte GC = 0x46;
 
     private static TrueTypeInterpreter interpreter()
     {
@@ -301,5 +306,47 @@ class TrueTypeInterpreterTest
                 new byte[] { PUSHB1, 7, PUSHW1, (byte) 0xFF, (byte) 0xFF, PUSHB1, 1, LOOPCALL }, 16);
         assertEquals(7, ctx.peek(0));
         assertEquals(1, ctx.getStackDepth());
+    }
+
+    /**
+     * A font may compute values into the storage area in {@code prep} and read them back from every
+     * glyph program, so storage belongs to the size and not to one program run. Building a fresh
+     * storage array per run made {@code RS} read zeros - silently wrong outlines rather than a failure.
+     */
+    @Test
+    void testStoragePersistsFromPrepIntoGlyphProgram()
+    {
+        TrueTypeInterpreter interp = interpreter();
+        interp.setControlValueProgram(new byte[] { PUSHB2, 5, 42, WS }); // storage[5] = 42
+        interp.setPpem(16, 16);
+
+        ExecutionContext ctx = interp.executeProgram(new byte[] { PUSHB1, 5, RS }, 16);
+        assertEquals(42, ctx.peek(0));
+    }
+
+    /** The twilight zone belongs to the size for the same reason: {@code prep} seeds points there. */
+    @Test
+    void testTwilightPointsPersistFromPrep()
+    {
+        TrueTypeInterpreter interp = new TrueTypeInterpreter(256, 16, 4, 2048);
+        // prep: aim every zone pointer at the twilight zone, then set point 1's x to 128
+        interp.setControlValueProgram(new byte[] { PUSHB1, 0, SZPS, PUSHB2, 1, (byte) 128, SCFS });
+        interp.setPpem(16, 16);
+
+        ExecutionContext ctx = interp.executeProgram(new byte[] { PUSHB1, 0, SZPS, PUSHB1, 1, GC }, 16);
+        assertEquals(128, ctx.peek(0));
+    }
+
+    /** A new size starts clean, as FreeType clears both in {@code tt_size_run_prep}. */
+    @Test
+    void testStorageIsClearedOnPpemChange()
+    {
+        TrueTypeInterpreter interp = interpreter();
+        interp.setPpem(16, 16);
+        interp.executeProgram(new byte[] { PUSHB2, 5, 42, WS }, 16);
+        assertEquals(42, interp.executeProgram(new byte[] { PUSHB1, 5, RS }, 16).peek(0));
+
+        interp.setPpem(24, 24);
+        assertEquals(0, interp.executeProgram(new byte[] { PUSHB1, 5, RS }, 24).peek(0));
     }
 }

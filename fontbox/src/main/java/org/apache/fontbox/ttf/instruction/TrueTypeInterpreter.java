@@ -16,6 +16,7 @@
  */
 package org.apache.fontbox.ttf.instruction;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -59,9 +60,13 @@ public class TrueTypeInterpreter
     private final Map<Integer, FunctionDef> instructionDefs = new HashMap<>();
 
     private final int maxStackElements;
-    private final int maxStorage;
-    private final int maxTwilightPoints;
     private final int unitsPerEm;
+
+    // The storage area and twilight zone belong to the size, not to one program run: a font may seed
+    // them in prep and read them back from every glyph program. FreeType keeps both on the TT_Size and
+    // clears them in tt_size_run_prep, which is what setPpem does below.
+    private final int[] storage;
+    private final Zone twilightZone;
 
     private byte[] fontProgram;
     private byte[] controlValueProgram;
@@ -83,9 +88,9 @@ public class TrueTypeInterpreter
             int unitsPerEm)
     {
         this.maxStackElements = maxStackElements;
-        this.maxStorage = maxStorage;
-        this.maxTwilightPoints = maxTwilightPoints;
         this.unitsPerEm = unitsPerEm;
+        this.storage = new int[Math.max(maxStorage, 0)];
+        this.twilightZone = new Zone(Math.max(maxTwilightPoints, 0), 0);
         buildDispatch();
     }
 
@@ -140,8 +145,12 @@ public class TrueTypeInterpreter
     }
 
     /**
-     * Establishes a new ppem: scales the control values, runs the control value program ({@code prep})
-     * from a default graphics state, and saves the resulting state as the per-glyph template.
+     * Establishes a new ppem: scales the control values, clears the storage area and twilight zone, runs
+     * the control value program ({@code prep}) from a default graphics state, and saves the resulting
+     * state as the per-glyph template. Whatever {@code prep} leaves in storage and the twilight zone
+     * stays there for every glyph hinted at this size, which is why they are cleared here and not per
+     * glyph - after FreeType's {@code tt_size_run_prep}. Anything the font program wrote to storage is
+     * discarded, again as FreeType does: {@code fpgm} is only meant to define functions.
      *
      * @param ppemValue the pixels-per-em to render at
      * @param pointSizeValue the point size
@@ -151,6 +160,8 @@ public class TrueTypeInterpreter
         this.ppem = ppemValue;
         this.pointSize = pointSizeValue;
         scaleControlValues();
+        Arrays.fill(storage, 0);
+        twilightZone.reset();
 
         GraphicsState gs = new GraphicsState();
         if (controlValueProgram != null && controlValueProgram.length > 0)
@@ -171,16 +182,17 @@ public class TrueTypeInterpreter
     }
 
     /**
-     * Builds a fresh execution context wired to this interpreter's sizes, scaled control values and
-     * the current ppem.
+     * Builds a fresh execution context wired to this interpreter's sizes, scaled control values and the
+     * current ppem. The stack and per-run counters are new; the storage area and twilight zone are the
+     * interpreter's own, so values {@code prep} left there are visible to the glyph programs.
      *
      * @param gs the graphics state the context starts from
      * @return a new execution context
      */
     public ExecutionContext newContext(GraphicsState gs)
     {
-        ExecutionContext ctx = new ExecutionContext(this, gs, maxStackElements, maxStorage,
-                scaledControlValues, maxTwilightPoints);
+        ExecutionContext ctx = new ExecutionContext(this, gs, maxStackElements, storage,
+                scaledControlValues, twilightZone);
         ctx.setUnitsPerEm(unitsPerEm);
         ctx.setPpem(ppem);
         ctx.setPointSize(pointSize);

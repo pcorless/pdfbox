@@ -22,6 +22,11 @@ package org.apache.fontbox.ttf.instruction;
  * touching every handler. It holds the operand stack, storage area, scaled control values, the two
  * point zones, the {@link GraphicsState}, the current {@link BytecodeStream}, and the ppem the program
  * is running at.
+ * <p>
+ * Not all of that state is per-run. The storage area and the twilight zone are owned by the
+ * {@link TrueTypeInterpreter} and handed to every context at one size, because a font may compute values
+ * into them in {@code prep} and read them back from each glyph program - FreeType keeps both on the
+ * {@code TT_Size} for the same reason.
  *
  * @author Apache PDFBox
  */
@@ -33,10 +38,11 @@ public class ExecutionContext
     private final int[] stack;
     private int stackPointer;
 
+    // owned by the interpreter and shared by every context at one size, so prep can seed them
     private final int[] storage;
-    private final int[] controlValues;
-
     private final Zone twilightZone;
+
+    private final int[] controlValues;
     private Zone glyphZone;
 
     private int ppem;
@@ -67,19 +73,19 @@ public class ExecutionContext
      * @param interpreter the owning interpreter (for function calls)
      * @param graphicsState the graphics state this run starts from
      * @param maxStackElements operand stack capacity
-     * @param maxStorage storage area size
+     * @param storage the interpreter's storage area, shared across the runs at one size
      * @param controlValues the scaled control values (F26Dot6), or null
-     * @param maxTwilightPoints number of twilight-zone points
+     * @param twilightZone the interpreter's twilight zone, shared across the runs at one size
      */
     public ExecutionContext(TrueTypeInterpreter interpreter, GraphicsState graphicsState,
-            int maxStackElements, int maxStorage, int[] controlValues, int maxTwilightPoints)
+            int maxStackElements, int[] storage, int[] controlValues, Zone twilightZone)
     {
         this.interpreter = interpreter;
         this.graphicsState = graphicsState;
         this.stack = new int[Math.max(maxStackElements, 1)];
-        this.storage = new int[Math.max(maxStorage, 0)];
+        this.storage = storage;
         this.controlValues = controlValues != null ? controlValues : new int[0];
-        this.twilightZone = new Zone(Math.max(maxTwilightPoints, 0), 0);
+        this.twilightZone = twilightZone;
     }
 
     /** @return the owning interpreter */
@@ -211,7 +217,7 @@ public class ExecutionContext
 
     // --- storage and control values --------------------------------------
 
-    /** @return the storage area */
+    /** @return the storage area, shared with every other run at this size */
     public int[] getStorage()
     {
         return storage;
@@ -225,7 +231,7 @@ public class ExecutionContext
 
     // --- zones -----------------------------------------------------------
 
-    /** @return the twilight zone (zone 0) */
+    /** @return the twilight zone (zone 0), shared with every other run at this size */
     public Zone getTwilightZone()
     {
         return twilightZone;

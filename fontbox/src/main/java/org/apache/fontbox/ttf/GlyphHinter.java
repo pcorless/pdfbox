@@ -377,6 +377,12 @@ class GlyphHinter
         }
     }
 
+    /**
+     * Re-runs the control value program if the ppem changed. The guard is load-bearing, not just an
+     * optimisation: {@code setPpem} clears the storage area and twilight zone before running
+     * {@code prep}, so re-running it per glyph would wipe the values {@code prep} seeded for the glyph
+     * programs to read.
+     */
     private void setActivePpem(int ppem) throws IOException
     {
         if (ppem != currentPpem)
