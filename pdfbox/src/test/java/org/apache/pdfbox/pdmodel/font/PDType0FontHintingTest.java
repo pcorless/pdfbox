@@ -26,27 +26,33 @@ import java.awt.geom.PathIterator;
 import java.awt.geom.Rectangle2D;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
+import org.apache.fontbox.ttf.TTFParser;
 import org.apache.fontbox.ttf.TrueTypeFont;
+import org.apache.pdfbox.cos.COSArray;
 import org.apache.pdfbox.cos.COSDictionary;
 import org.apache.pdfbox.cos.COSName;
+import org.apache.pdfbox.io.RandomAccessReadBufferedFile;
 import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.pdmodel.font.encoding.WinAnsiEncoding;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
 
 /**
- * Verifies the render-path hinting wiring at the font level: an embedded TrueType font returns a
- * grid-fitted normalized path that differs from the unhinted one, is in the same 1000/em space, and
- * respects the gasp gate.
+ * The CID half of the render-path hinting wiring. {@link PDCIDFontType2#getHintedNormalizedPath} is a
+ * near-copy of the {@link PDTrueTypeFont} one but had no test of its own, and {@link PDType0Font}
+ * forwards to it only when the descendant really is a CIDFontType2.
  */
 @Isolated // TrueTypeFont hinting is a global switch; other classes must not render while it is on
-class PDTrueTypeFontHintingTest
+class PDType0FontHintingTest
 {
-    // hinting is off by default, so these tests have to turn the feature on first
+    private static final File FONT =
+            new File("src/test/resources/org/apache/pdfbox/ttf/LiberationSans-Regular.ttf");
+
     @BeforeEach
     void enableHinting()
     {
@@ -59,22 +65,30 @@ class PDTrueTypeFontHintingTest
         TrueTypeFont.setHintingEnabled(false);
     }
 
-    private static final File FONT =
-            new File("src/test/resources/org/apache/pdfbox/ttf/LiberationSans-Regular.ttf");
+    /**
+     * Embeds the font whole (no subsetting) so the encoding is Identity and a character code is its
+     * own glyph id, which keeps the test about hinting rather than about CID mapping.
+     */
+    private static PDType0Font load(PDDocument doc, int[] gidOut) throws IOException
+    {
+        TrueTypeFont ttf = new TTFParser().parse(new RandomAccessReadBufferedFile(FONT));
+        gidOut[0] = ttf.getUnicodeCmapLookup().getGlyphId('H');
+        assertTrue(gidOut[0] > 0, "no glyph for 'H'");
+        return PDType0Font.load(doc, ttf, false);
+    }
 
     @Test
     void testHintedNormalizedPathDiffersFromUnhinted() throws IOException
     {
         try (PDDocument doc = new PDDocument())
         {
-            PDTrueTypeFont font = PDTrueTypeFont.load(doc, FONT, WinAnsiEncoding.INSTANCE);
-            int code = 'H';
+            int[] gid = new int[1];
+            PDType0Font font = load(doc, gid);
 
-            GeneralPath hinted = font.getHintedNormalizedPath(code, 16);
+            GeneralPath hinted = font.getHintedNormalizedPath(gid[0], 16);
             assertNotNull(hinted, "expected a hinted path for 'H' at 16ppem");
-            GeneralPath unhinted = font.getNormalizedPath(code);
+            GeneralPath unhinted = font.getNormalizedPath(gid[0]);
 
-            // hinting must change the outline
             assertFalse(Arrays.equals(flatten(hinted), flatten(unhinted)),
                     "hinted path should differ from the unhinted path");
 
@@ -90,10 +104,11 @@ class PDTrueTypeFontHintingTest
     {
         try (PDDocument doc = new PDDocument())
         {
-            PDTrueTypeFont font = PDTrueTypeFont.load(doc, FONT, WinAnsiEncoding.INSTANCE);
+            int[] gid = new int[1];
+            PDType0Font font = load(doc, gid);
             // LiberationSans gasp disables grid-fitting at <= 8 ppem
-            assertNull(font.getHintedNormalizedPath('H', 8));
-            assertNotNull(font.getHintedNormalizedPath('H', 16));
+            assertNull(font.getHintedNormalizedPath(gid[0], 8));
+            assertNotNull(font.getHintedNormalizedPath(gid[0], 16));
         }
     }
 
@@ -101,24 +116,40 @@ class PDTrueTypeFontHintingTest
     @Test
     void testNonEmbeddedFontDoesNotHint() throws IOException
     {
-        COSDictionary dict = new COSDictionary();
-        dict.setItem(COSName.TYPE, COSName.FONT);
-        dict.setItem(COSName.SUBTYPE, COSName.TRUE_TYPE);
-        dict.setName(COSName.BASE_FONT, "Helvetica");
-
-        PDTrueTypeFont font = new PDTrueTypeFont(dict, null);
-        assertFalse(font.isEmbedded(), "font should not be embedded");
+        PDType0Font font = nonEmbedded();
+        assertFalse(font.getDescendantFont().isEmbedded(), "font should not be embedded");
         // the substituted font still draws, so a null hinted path is the embedded check talking
         // rather than a font that cannot produce an outline at all
-        assertFalse(font.getNormalizedPath('H').getPathIterator(null).isDone(),
+        int gid = font.getDescendantFont().codeToGID('H');
+        assertFalse(font.getNormalizedPath(gid).getPathIterator(null).isDone(),
                 "expected the substitute font to produce an outline");
-        assertNull(font.getHintedNormalizedPath('H', 16));
+        assertNull(font.getHintedNormalizedPath(gid, 16));
+    }
+
+    /** Builds the Type0/CIDFontType2 dictionary pair a PDF uses when it does not embed the font. */
+    private static PDType0Font nonEmbedded() throws IOException
+    {
+        COSDictionary cid = new COSDictionary();
+        cid.setItem(COSName.TYPE, COSName.FONT);
+        cid.setItem(COSName.SUBTYPE, COSName.CID_FONT_TYPE2);
+        cid.setName(COSName.BASE_FONT, "Helvetica");
+
+        COSArray descendants = new COSArray();
+        descendants.add(cid);
+
+        COSDictionary type0 = new COSDictionary();
+        type0.setItem(COSName.TYPE, COSName.FONT);
+        type0.setItem(COSName.SUBTYPE, COSName.TYPE0);
+        type0.setName(COSName.BASE_FONT, "Helvetica");
+        type0.setItem(COSName.ENCODING, COSName.IDENTITY_H);
+        type0.setItem(COSName.DESCENDANT_FONTS, descendants);
+        return new PDType0Font(type0, null);
     }
 
     private static double[] flatten(GeneralPath path)
     {
         double[] coords = new double[6];
-        java.util.List<Double> out = new java.util.ArrayList<>();
+        List<Double> out = new ArrayList<>();
         for (PathIterator it = path.getPathIterator(null); !it.isDone(); it.next())
         {
             out.add((double) it.currentSegment(coords));
