@@ -62,6 +62,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.fontbox.ttf.TrueTypeFont;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 import org.apache.pdfbox.contentstream.PDFGraphicsStreamEngine;
@@ -178,14 +179,6 @@ public class PageDrawer extends PDFGraphicsStreamEngine
     private final float imageDownscalingOptimizationThreshold;
     private LookupTable invTable = null;
     private final Map<COSBase,Boolean> blendModeMap = new HashMap<>();
-
-    /**
-     * Whether to grid-fit (TrueType-hint) embedded TrueType glyphs at render time. Off by default
-     * (preserves existing unhinted output); enable with
-     * {@code -Dorg.apache.pdfbox.rendering.hinting=true}.
-     */
-    private final boolean hintingEnabled =
-            "true".equalsIgnoreCase(System.getProperty("org.apache.pdfbox.rendering.hinting"));
 
     /**
     * Default annotations filter, returns all annotations
@@ -522,8 +515,9 @@ public class PageDrawer extends PDFGraphicsStreamEngine
         // PDF user space (points) - the device scale (DPI, subsampling) lives in 'xform', which the
         // Graphics2D applies separately. Compose it in so the ppem is the true device pixels-per-em;
         // otherwise we grid-fit at the font's point size (e.g. 7) instead of its rendered size (e.g. 29).
+        // grid-fitting is off by default; when it is off we take the plain, code-keyed cache path
         int ppem = 0;
-        if (hintingEnabled)
+        if (TrueTypeFont.isHintingEnabled())
         {
             AffineTransform deviceAt = at;
             if (xform != null)

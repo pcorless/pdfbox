@@ -42,17 +42,14 @@ import org.apache.logging.log4j.Logger;
  * Hinting is best-effort: anything malformed, unsupported, or not applicable (a composite glyph, a
  * glyph with no instructions, a ppem the {@code gasp} table excludes) falls back to {@code null}, and
  * the caller renders the raw outline. One bad glyph never disables hinting for the rest of the font.
- * Setting the system property {@code org.apache.fontbox.ttf.hinting} to {@code false} disables hinting
- * entirely.
+ * Hinting as a whole is switched on and off by {@link TrueTypeFont#isHintingEnabled()}; while it is
+ * off every glyph falls back to {@code null}.
  *
  * @author Apache PDFBox
  */
 class GlyphHinter
 {
     private static final Logger LOG = LogManager.getLogger(GlyphHinter.class);
-
-    /** System property to disable hinting entirely (the regression escape hatch). */
-    static final String HINTING_PROPERTY = "org.apache.fontbox.ttf.hinting";
 
     private final TrueTypeFont font;
 
@@ -122,11 +119,6 @@ class GlyphHinter
     GlyphHinter(TrueTypeFont font)
     {
         this.font = font;
-    }
-
-    private static boolean isDisabled()
-    {
-        return "false".equalsIgnoreCase(System.getProperty(HINTING_PROPERTY));
     }
 
     /** True if the font is a known "tricky" font whose glyphs depend on full bytecode hinting. */
@@ -356,7 +348,7 @@ class GlyphHinter
     /** Runs all gating, then grid-fits the glyph, returning the executed zone or null on fallback. */
     private Hinted hint(int gid, int ppem)
     {
-        if (isDisabled() || ppem <= 0)
+        if (!TrueTypeFont.isHintingEnabled() || ppem <= 0)
         {
             return null;
         }

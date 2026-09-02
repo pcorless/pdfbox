@@ -28,6 +28,8 @@ import java.io.InputStream;
 import java.util.Arrays;
 
 import org.apache.pdfbox.io.RandomAccessReadBuffer;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -37,6 +39,19 @@ import org.junit.jupiter.api.Test;
  */
 class HintingIntegrationTest
 {
+    // hinting is off by default, so every test here has to turn the feature on first
+    @BeforeEach
+    void enableHinting()
+    {
+        TrueTypeFont.setHintingEnabled(true);
+    }
+
+    @AfterEach
+    void restoreHinting()
+    {
+        TrueTypeFont.setHintingEnabled(false);
+    }
+
     private static TrueTypeFont parse(String resource) throws IOException
     {
         try (InputStream is = HintingIntegrationTest.class.getResourceAsStream(resource))
@@ -112,24 +127,10 @@ class HintingIntegrationTest
     {
         TrueTypeFont font = parse("/ttf/LiberationSans-Regular.ttf");
         int h = gid(font, 'H');
-        String previous = System.getProperty(GlyphHinter.HINTING_PROPERTY);
-        try
-        {
-            System.setProperty(GlyphHinter.HINTING_PROPERTY, "false");
-            assertNull(font.getHintedPath(h, 16), "escape hatch must disable hinting");
-        }
-        finally
-        {
-            if (previous == null)
-            {
-                System.clearProperty(GlyphHinter.HINTING_PROPERTY);
-            }
-            else
-            {
-                System.setProperty(GlyphHinter.HINTING_PROPERTY, previous);
-            }
-        }
-        assertNotNull(font.getHintedPath(h, 16), "hinting restored once the property is cleared");
+        TrueTypeFont.setHintingEnabled(false);
+        assertNull(font.getHintedPath(h, 16), "escape hatch must disable hinting");
+        TrueTypeFont.setHintingEnabled(true);
+        assertNotNull(font.getHintedPath(h, 16), "hinting restored once the switch is back on");
     }
 
     @Test

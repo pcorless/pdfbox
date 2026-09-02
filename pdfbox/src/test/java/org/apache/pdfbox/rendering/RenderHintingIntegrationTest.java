@@ -23,47 +23,40 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 
+import org.apache.fontbox.ttf.TrueTypeFont;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.font.PDTrueTypeFont;
 import org.apache.pdfbox.pdmodel.font.encoding.WinAnsiEncoding;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Isolated;
 
 /**
- * Proves that hinting is actually wired into the render path: when the rendering hinting property is
- * enabled, a page of embedded TrueType text rasterizes to a different image than with it disabled.
+ * Proves that hinting is actually wired into the render path: when hinting is enabled, a page of
+ * embedded TrueType text rasterizes to a different image than with it disabled.
  */
+@Isolated // TrueTypeFont hinting is a global switch; other classes must not render while it is on
 class RenderHintingIntegrationTest
 {
-    private static final String PROPERTY = "org.apache.pdfbox.rendering.hinting";
     private static final File FONT =
             new File("src/test/resources/org/apache/pdfbox/ttf/LiberationSans-Regular.ttf");
+
+    @AfterEach
+    void restoreHinting()
+    {
+        TrueTypeFont.setHintingEnabled(false);
+    }
 
     @Test
     void testHintingChangesRenderedPixels() throws IOException
     {
         byte[] pdf = buildPdf();
         BufferedImage off = render(pdf);
-        BufferedImage on;
-        String previous = System.getProperty(PROPERTY);
-        try
-        {
-            System.setProperty(PROPERTY, "true");
-            on = render(pdf);
-        }
-        finally
-        {
-            if (previous == null)
-            {
-                System.clearProperty(PROPERTY);
-            }
-            else
-            {
-                System.setProperty(PROPERTY, previous);
-            }
-        }
+        TrueTypeFont.setHintingEnabled(true);
+        BufferedImage on = render(pdf);
 
         assertEquals(off.getWidth(), on.getWidth());
         assertEquals(off.getHeight(), on.getHeight());
