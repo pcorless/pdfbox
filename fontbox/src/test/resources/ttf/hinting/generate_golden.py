@@ -58,13 +58,33 @@ CHARS = "HILEThoxn0123456789" + "áàâäãéèçñüÁÉÑÜ"
 # PDFBox rasterizes (Java2D is always antialiased); see GlyphHinter / ExecutionContext.movePoint.
 LOAD_FLAGS = freetype.FT_LOAD_NO_AUTOHINT | freetype.FT_LOAD_TARGET_NORMAL
 
+# Prepended to every generated file: these are checked into an Apache project, and the parser in
+# GoldenHintingTest ignores any line that is not "glyph "/"x "/"y ", so comments cost nothing.
+LICENSE_HEADER = [
+    "# Licensed to the Apache Software Foundation (ASF) under one or more",
+    "# contributor license agreements.  See the NOTICE file distributed with",
+    "# this work for additional information regarding copyright ownership.",
+    "# The ASF licenses this file to You under the Apache License, Version 2.0",
+    "# (the \"License\"); you may not use this file except in compliance with",
+    "# the License.  You may obtain a copy of the License at",
+    "#",
+    "#      http://www.apache.org/licenses/LICENSE-2.0",
+    "#",
+    "# Unless required by applicable law or agreed to in writing, software",
+    "# distributed under the License is distributed on an \"AS IS\" BASIS,",
+    "# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.",
+    "# See the License for the specific language governing permissions and",
+    "# limitations under the License.",
+]
+
 
 def dump_font(font_name):
     face = freetype.Face(os.path.join(FONT_DIR, font_name))
     version = ".".join(str(v) for v in freetype.version())
     for ppem in PPEMS:
         face.set_pixel_sizes(0, ppem)
-        lines = [f"font {font_name}", f"ppem {ppem}", f"freetype {version}"]
+        lines = list(LICENSE_HEADER)
+        lines += [f"font {font_name}", f"ppem {ppem}", f"freetype {version}"]
         count = 0
         for ch in CHARS:
             gid = face.get_char_index(ord(ch))
