@@ -100,6 +100,17 @@ public class TrueTypeFont implements FontBoxFont, Closeable
     }
 
     /**
+     * Discards the resolved setting so the next {@link #isHintingEnabled()} reads
+     * {@link #SYSPROP_HINTING} again. Package-private, and here for the tests that cover the
+     * property-to-default resolution: the setting is resolved once per JVM, so without this a test
+     * cannot observe what a fresh JVM would have seen.
+     */
+    static void resetHintingSetting()
+    {
+        hintingEnabled = null;
+    }
+
+    /**
      * Constructor.  Clients should use the TTFParser to create a new TrueTypeFont object.
      * 
      * @param fontData The font data.
