@@ -37,6 +37,14 @@ import org.apache.logging.log4j.Logger;
  * the caller renders the raw outline. One bad glyph never disables hinting for the rest of the font.
  * Hinting as a whole is switched on and off by {@link TrueTypeFont#isHintingEnabled()}; while it is
  * off every glyph falls back to {@code null}.
+ * <p>
+ * The interpreter carries a great deal of mutable state - the storage area, the twilight zone, the
+ * post-{@code prep} template, the active ppem - so every entry point here is {@code synchronized} and
+ * one font hints one glyph at a time. That is correct but it does serialize: a font substituted from
+ * the system is held in a process-wide cache, so several rendering threads can share one instance and
+ * queue on this monitor. Embedded fonts are per-document and unaffected. If it ever measures as a
+ * bottleneck the answer is a per-thread or pooled interpreter, not a weaker lock; until then the simple
+ * thing is the right thing. {@code HintingConcurrencyTest} pins the current behaviour.
  *
  * @author Apache PDFBox
  */

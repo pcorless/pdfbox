@@ -91,6 +91,9 @@ public class TrueTypeFont implements FontBoxFont, Closeable
     /**
      * Enables or disables TrueType bytecode hinting, overriding {@link #SYSPROP_HINTING}. This is a
      * global setting; it takes effect for fonts already parsed.
+     * <p>
+     * Intended for start-up and for tests. Renderers consult {@link #isHintingEnabled()} per glyph, so
+     * flipping this while a page is being drawn produces a half-hinted page rather than an error.
      *
      * @param enabled true to grid-fit glyph outlines, false to return raw outlines
      */
