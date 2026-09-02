@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.fontbox.ttf.instruction;
+package org.apache.fontbox.ttf;
 
 /**
  * Thrown when the TrueType bytecode interpreter encounters a malformed or unsupported program. It is
@@ -23,7 +23,7 @@ package org.apache.fontbox.ttf.instruction;
  *
  * @author Apache PDFBox
  */
-public class HintingException extends RuntimeException
+class HintingException extends RuntimeException
 {
     private static final long serialVersionUID = 1L;
 

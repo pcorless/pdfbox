@@ -75,12 +75,6 @@
         <configuration>
             <instructions>
                 <Automatic-Module-Name>org.apache.fontbox</Automatic-Module-Name>
-                <!-- The TrueType bytecode interpreter is an implementation detail of the ttf
-                     package, not API: keep it in the bundle but out of the export list. Setting
-                     Export-Package replaces bnd's default entirely, so org.apache.fontbox.unicode -
-                     resources only, no classes, which the default skipped - has to be excluded by
-                     hand to keep the exported set otherwise unchanged. -->
-                <Export-Package>!org.apache.fontbox.ttf.instruction,!org.apache.fontbox.ttf.instruction.*,!org.apache.fontbox.unicode,org.apache.fontbox.*</Export-Package>
             </instructions>
         </configuration>
       </plugin>

@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.fontbox.ttf.instruction;
+package org.apache.fontbox.ttf;
 
 import java.util.Arrays;
 
@@ -26,7 +26,7 @@ import java.util.Arrays;
  *
  * @author Apache PDFBox
  */
-public class Zone
+class Zone
 {
     private final int[] currentX;
     private final int[] currentY;

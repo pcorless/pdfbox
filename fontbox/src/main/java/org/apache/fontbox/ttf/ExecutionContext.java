@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.fontbox.ttf.instruction;
+package org.apache.fontbox.ttf;
 
 /**
  * All mutable state for a single run of the interpreter, bundled into one object so opcode handlers
@@ -30,7 +30,7 @@ package org.apache.fontbox.ttf.instruction;
  *
  * @author Apache PDFBox
  */
-public class ExecutionContext
+class ExecutionContext
 {
     private final TrueTypeInterpreter interpreter;
     private final GraphicsState graphicsState;

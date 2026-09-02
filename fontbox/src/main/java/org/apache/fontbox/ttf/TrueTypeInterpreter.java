@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.fontbox.ttf.instruction;
+package org.apache.fontbox.ttf;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -32,10 +32,10 @@ import java.util.Map;
  *
  * @author Apache PDFBox
  */
-public class TrueTypeInterpreter
+class TrueTypeInterpreter
 {
     /** Maximum {@code CALL}/{@code LOOPCALL} nesting depth, matching FreeType. */
-    public static final int MAX_CALL_DEPTH = 64;
+    static final int MAX_CALL_DEPTH = 64;
 
     /** A single opcode handler. */
     @FunctionalInterface

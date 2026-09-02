@@ -19,13 +19,6 @@ package org.apache.fontbox.ttf;
 import java.awt.geom.GeneralPath;
 import java.io.IOException;
 
-import org.apache.fontbox.ttf.instruction.BytecodeStream;
-import org.apache.fontbox.ttf.instruction.ExecutionContext;
-import org.apache.fontbox.ttf.instruction.ExecutionTracer;
-import org.apache.fontbox.ttf.instruction.Fixed;
-import org.apache.fontbox.ttf.instruction.GraphicsState;
-import org.apache.fontbox.ttf.instruction.TrueTypeInterpreter;
-import org.apache.fontbox.ttf.instruction.Zone;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

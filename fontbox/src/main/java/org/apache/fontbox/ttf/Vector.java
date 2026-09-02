@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.fontbox.ttf.instruction;
+package org.apache.fontbox.ttf;
 
 /**
  * A 2D unit vector in F2Dot14 fixed point, used for the projection, freedom and dual-projection
@@ -24,7 +24,7 @@ package org.apache.fontbox.ttf.instruction;
  *
  * @author Apache PDFBox
  */
-public class Vector
+class Vector
 {
     private int x;
     private int y;

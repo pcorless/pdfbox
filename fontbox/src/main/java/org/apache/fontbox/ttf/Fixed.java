@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.fontbox.ttf.instruction;
+package org.apache.fontbox.ttf;
 
 /**
  * Integer fixed-point math for the TrueType bytecode interpreter.
@@ -26,7 +26,7 @@ package org.apache.fontbox.ttf.instruction;
  *
  * @author Apache PDFBox
  */
-public final class Fixed
+final class Fixed
 {
     /** One pixel in F26Dot6. */
     public static final int ONE = 64;

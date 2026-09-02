@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.fontbox.ttf.instruction;
+package org.apache.fontbox.ttf;
 
 /**
  * A function defined by an {@code FDEF} instruction: the bytecode program it lives in (normally the
@@ -23,7 +23,7 @@ package org.apache.fontbox.ttf.instruction;
  *
  * @author Apache PDFBox
  */
-public class FunctionDef
+class FunctionDef
 {
     private final byte[] program;
     private final int entryPoint;

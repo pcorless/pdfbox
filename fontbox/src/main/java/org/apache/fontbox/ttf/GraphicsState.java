@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.fontbox.ttf.instruction;
+package org.apache.fontbox.ttf;
 
 /**
  * The TrueType interpreter graphics state: projection/freedom vectors, reference and zone pointers,
@@ -31,7 +31,7 @@ package org.apache.fontbox.ttf.instruction;
  *
  * @author Apache PDFBox
  */
-public class GraphicsState
+class GraphicsState
 {
     /** Round to grid - the default round state. */
     public static final int ROUND_TO_GRID = 0;

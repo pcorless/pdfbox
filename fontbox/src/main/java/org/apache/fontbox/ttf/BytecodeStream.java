@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.fontbox.ttf.instruction;
+package org.apache.fontbox.ttf;
 
 /**
  * A bounds-checked cursor over a TrueType bytecode program (fpgm, prep, a glyph instruction stream, or
@@ -24,7 +24,7 @@ package org.apache.fontbox.ttf.instruction;
  *
  * @author Apache PDFBox
  */
-public class BytecodeStream
+class BytecodeStream
 {
     private final byte[] code;
     private int ip;
