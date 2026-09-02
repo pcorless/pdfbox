@@ -122,6 +122,57 @@ class HintingIntegrationTest
         assertTrue(Arrays.equals(first, second));
     }
 
+    /**
+     * Hinting one glyph must not change the next. The storage area and twilight zone are deliberately
+     * shared across the glyphs hinted at one size (that is how {@code prep} seeds them), so this pins
+     * down that nothing <em>else</em> leaks between glyphs - graphics state, zone contents, the cached
+     * ppem. A composite is in the run because it re-enters the hinter for each component.
+     *
+     * <p>This is a property of a well-behaved font rather than a universal law: a glyph program may
+     * legally write storage, and FreeType would carry that into the next glyph too. LiberationSans does
+     * not, so any difference here is a bug on our side.
+     */
+    @Test
+    void testHintingIsIndependentOfGlyphOrder() throws IOException
+    {
+        TrueTypeFont font = parse("/ttf/LiberationSans-Regular.ttf");
+        int h = gid(font, 'H');
+        int eacute = gid(font, 0x00E9);
+        assertTrue(font.getGlyph().getGlyph(eacute).getNumberOfContours() < 0,
+                "expected e-acute to be a composite glyph");
+
+        double[] before = flatten(font.getHintedPath(h, 16));
+        for (char c : "oxn8".toCharArray())
+        {
+            font.getHintedPath(gid(font, c), 16);
+        }
+        font.getHintedPath(eacute, 16);
+        double[] after = flatten(font.getHintedPath(h, 16));
+
+        assertTrue(Arrays.equals(before, after),
+                "hinting other glyphs must not change the result for 'H'");
+    }
+
+    /**
+     * Returning to a ppem must reproduce the earlier result. A ppem change re-runs the control value
+     * program, which clears the storage area and twilight zone, so this covers the round trip out of a
+     * size and back into it.
+     */
+    @Test
+    void testHintingIsIndependentOfPpemOrder() throws IOException
+    {
+        TrueTypeFont font = parse("/ttf/LiberationSans-Regular.ttf");
+        int h = gid(font, 'H');
+
+        double[] before = flatten(font.getHintedPath(h, 16));
+        font.getHintedPath(h, 11);
+        font.getHintedPath(h, 24);
+        double[] after = flatten(font.getHintedPath(h, 16));
+
+        assertTrue(Arrays.equals(before, after),
+                "hinting at other ppems must not change the result at 16ppem");
+    }
+
     @Test
     void testEscapeHatchDisablesHinting() throws IOException
     {
