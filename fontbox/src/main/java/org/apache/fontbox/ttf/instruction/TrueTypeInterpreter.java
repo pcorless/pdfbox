@@ -559,20 +559,14 @@ public class TrueTypeInterpreter
         };
         dispatch[ELSE] = ctx -> skipToEif(ctx.getStream());
         dispatch[EIF] = ctx -> { /* no-op terminator */ };
-        dispatch[0x1C] = ctx ->                                          // JMPR
-        {
-            int offset = ctx.pop();
-            BytecodeStream s = ctx.getStream();
-            s.seek(s.instructionStart() + offset);
-        };
+        dispatch[0x1C] = ctx -> jump(ctx, ctx.pop());                    // JMPR
         dispatch[0x78] = ctx ->                                          // JROT
         {
             int e = ctx.pop();
             int offset = ctx.pop();
             if (e != 0)
             {
-                BytecodeStream s = ctx.getStream();
-                s.seek(s.instructionStart() + offset);
+                jump(ctx, offset);
             }
         };
         dispatch[0x79] = ctx ->                                          // JROF
@@ -581,8 +575,7 @@ public class TrueTypeInterpreter
             int offset = ctx.pop();
             if (e == 0)
             {
-                BytecodeStream s = ctx.getStream();
-                s.seek(s.instructionStart() + offset);
+                jump(ctx, offset);
             }
         };
         dispatch[FDEF] = this::defineFunction;
@@ -593,11 +586,37 @@ public class TrueTypeInterpreter
         {
             int functionNumber = ctx.pop();
             int count = ctx.pop();
+            // the spec calls the count unsigned; FreeType runs nothing at all when it is not positive
+            if (count <= 0)
+            {
+                return;
+            }
+            // charge the whole loop up front, so an absurd count fails before a single iteration runs
+            ctx.countLoopCalls(count);
             for (int i = 0; i < count; i++)
             {
                 callFunction(ctx, functionNumber);
             }
         };
+    }
+
+    /**
+     * Jumps to {@code offset} bytes from the start of the current instruction. A backward jump is the
+     * only way TrueType bytecode can loop other than {@code LOOPCALL}, so those are counted against the
+     * run's budget and the program is abandoned once it exceeds it.
+     *
+     * @param ctx the execution context
+     * @param offset the jump offset, relative to the current instruction
+     * @throws HintingException if the stream position is out of range, or too many backward jumps
+     */
+    private static void jump(ExecutionContext ctx, int offset)
+    {
+        if (offset < 0)
+        {
+            ctx.countNegativeJump();
+        }
+        BytecodeStream s = ctx.getStream();
+        s.seek(s.instructionStart() + offset);
     }
 
     private void installStateOps()

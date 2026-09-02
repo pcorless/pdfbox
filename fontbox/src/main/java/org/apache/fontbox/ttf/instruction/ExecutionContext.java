@@ -47,6 +47,14 @@ public class ExecutionContext
     private int callDepth;
     private boolean returnFromFunction;
 
+    // Execution budget. TrueType can only loop through a backward jump or a LOOPCALL, so bounding
+    // those two bounds the whole program - without them a four-byte glyph program can spin forever.
+    // Both counters are per-context, and one context is one top-level program run, so they need no
+    // reset. After FreeType's neg_jump_counter / loopcall_counter in TT_RunIns.
+    private long negativeJumpCounter;
+    private long loopCallCounter;
+    private int executionBudget = -1;
+
     // v40 "backward compatibility" (grayscale subpixel) state. When set, point moves in the x
     // direction are suppressed so stems are not grid-fit and darkened under antialiasing, and y moves
     // are frozen once IUP has run on both axes. Only enabled for the glyph program, never fpgm/prep.
@@ -146,6 +154,59 @@ public class ExecutionContext
     public void clearStack()
     {
         stackPointer = 0;
+    }
+
+    // --- execution budget -------------------------------------------------
+
+    /**
+     * The maximum number of backward jumps, and separately of {@code LOOPCALL} iterations, this run may
+     * make before it is abandoned. Sized from the glyph's point count and the control value count the
+     * way FreeType sizes its counters, so a legitimately loop-heavy program still completes while a
+     * crafted one cannot run forever. Computed on first use, because the glyph zone is attached after
+     * the context is built.
+     *
+     * @return the per-run budget
+     */
+    public int getExecutionBudget()
+    {
+        if (executionBudget < 0)
+        {
+            int points = glyphZone != null ? glyphZone.getPointCount() : 0;
+            executionBudget = Math.max(50, 10 * points) + Math.max(50, controlValues.length / 10);
+        }
+        return executionBudget;
+    }
+
+    /**
+     * Records one backward jump, failing the run once {@link #getExecutionBudget()} is exhausted.
+     *
+     * @throws HintingException if too many backward jumps have been made
+     */
+    public void countNegativeJump()
+    {
+        if (++negativeJumpCounter > getExecutionBudget())
+        {
+            throw new HintingException(
+                    "too many backward jumps, limit is " + getExecutionBudget());
+        }
+    }
+
+    /**
+     * Adds {@code count} iterations to the {@code LOOPCALL} budget, failing before the loop is entered
+     * rather than partway through it. The budget is cumulative across the run, so a program cannot slip
+     * past it by issuing many small loops.
+     *
+     * @param count the number of iterations about to be run, always positive
+     * @throws HintingException if the budget is exhausted
+     */
+    public void countLoopCalls(int count)
+    {
+        loopCallCounter += count;
+        if (loopCallCounter > getExecutionBudget())
+        {
+            throw new HintingException("LOOPCALL runs too long, limit is " + getExecutionBudget()
+                    + " iterations, asked for " + loopCallCounter);
+        }
     }
 
     // --- storage and control values --------------------------------------

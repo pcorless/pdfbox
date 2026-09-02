@@ -18,6 +18,9 @@ package org.apache.fontbox.ttf.instruction;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+
+import java.time.Duration;
 
 import org.junit.jupiter.api.Test;
 
@@ -43,7 +46,9 @@ class TrueTypeInterpreterTest
     private static final byte IF = 0x58;
     private static final byte ELSE = 0x1B;
     private static final byte EIF = 0x59;
+    private static final byte PUSHW1 = (byte) 0xB8; // PUSHW[0] - push one signed word
     private static final byte JMPR = 0x1C;
+    private static final byte JROT = 0x78;
     private static final byte FDEF = 0x2C;
     private static final byte ENDF = 0x2D;
     private static final byte CALL = 0x2B;
@@ -224,5 +229,77 @@ class TrueTypeInterpreterTest
         // RCVT 0 -> the scaled value
         ExecutionContext ctx = interp.executeProgram(new byte[] { PUSHB1, 0, 0x45 }, 16);
         assertEquals(Fixed.fromInt(16), ctx.peek(0));
+    }
+
+    /**
+     * A backward jump is one of only two ways TrueType bytecode can loop, and this four-byte program -
+     * {@code PUSHW -3 ; JMPR}, which jumps back onto its own push - used to spin forever. It must now
+     * hit the execution budget and throw, so {@code GlyphHinter} falls back to the raw outline.
+     */
+    @Test
+    void testBackwardJumpIsBounded()
+    {
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () ->
+                assertThrows(HintingException.class,
+                        () -> interpreter().executeProgram(
+                                new byte[] { PUSHW1, (byte) 0xFF, (byte) 0xFD, JMPR }, 16)));
+    }
+
+    /**
+     * A backward-jump loop that stays inside the budget must still run to completion - the bound exists
+     * to stop runaway programs, not legitimately loop-heavy ones.
+     */
+    @Test
+    void testBackwardJumpWithinBudgetCompletes()
+    {
+        // counter = 60; loop { counter -= 1; if (counter != 0) jump back } -> 59 backward jumps
+        // [0]PUSHW1 60 [3]PUSHB1 1 [5]SUB [6]DUP [7]PUSHW1 -8 [10]SWAP [11]JROT
+        byte[] program =
+        {
+            PUSHW1, 0, 60,
+            PUSHB1, 1, SUB, DUP, PUSHW1, (byte) 0xFF, (byte) 0xF8, SWAP, JROT
+        };
+        ExecutionContext ctx = assertTimeoutPreemptively(Duration.ofSeconds(5),
+                () -> interpreter().executeProgram(program, 16));
+        assertEquals(0, ctx.peek(0));
+        assertEquals(1, ctx.getStackDepth());
+    }
+
+    /**
+     * {@code LOOPCALL} takes its iteration count off the stack, so a crafted font can ask for billions.
+     * The whole loop is charged against the budget up front, so an absurd count fails before a single
+     * iteration runs.
+     */
+    @Test
+    void testLoopCallCountIsBounded()
+    {
+        TrueTypeInterpreter interp = interpreter();
+        interp.setFontProgram(new byte[] { PUSHB1, 1, FDEF, PUSHB1, 1, ADD, ENDF });
+        interp.prepareFontProgram();
+
+        // stack: value=0, count=32767, fn=1
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () ->
+                assertThrows(HintingException.class,
+                        () -> interp.executeProgram(
+                                new byte[] { PUSHB1, 0, PUSHW1, 0x7F, (byte) 0xFF, PUSHB1, 1,
+                                        LOOPCALL }, 16)));
+    }
+
+    /**
+     * The spec calls the {@code LOOPCALL} count unsigned; FreeType runs nothing at all when it is not
+     * positive, so a negative count must be a no-op rather than an error or an underflowing loop.
+     */
+    @Test
+    void testNonPositiveLoopCallCountRunsNothing()
+    {
+        TrueTypeInterpreter interp = interpreter();
+        interp.setFontProgram(new byte[] { PUSHB1, 1, FDEF, PUSHB1, 1, ADD, ENDF });
+        interp.prepareFontProgram();
+
+        // stack: value=7, count=-1, fn=1 -> the function never runs, 7 is left untouched
+        ExecutionContext ctx = interp.executeProgram(
+                new byte[] { PUSHB1, 7, PUSHW1, (byte) 0xFF, (byte) 0xFF, PUSHB1, 1, LOOPCALL }, 16);
+        assertEquals(7, ctx.peek(0));
+        assertEquals(1, ctx.getStackDepth());
     }
 }
