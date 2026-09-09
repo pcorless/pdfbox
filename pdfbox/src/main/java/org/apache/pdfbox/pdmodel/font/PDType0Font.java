@@ -718,7 +718,16 @@ public class PDType0Font extends PDFont implements PDVectorFont
     {
         return descendantFont.getNormalizedPath(code);
     }
-    
+
+    @Override
+    public GeneralPath getHintedNormalizedPath(int code, int ppem) throws IOException
+    {
+        // PDCIDFont implements PDVectorFont, whose default returns null: only PDCIDFontType2
+        // overrides this, so the dispatch alone gives the hinted path for a TrueType-based
+        // descendant and null for a CFF-based one.
+        return descendantFont.getHintedNormalizedPath(code, ppem);
+    }
+
     @Override
     public boolean hasGlyph(int code) throws IOException
     {
