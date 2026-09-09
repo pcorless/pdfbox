@@ -313,6 +313,25 @@ public abstract class PDCIDFont implements COSObjectable
             throws IOException;
 
     /**
+     * Returns the grid-fitted (TrueType-hinted) normalized glyph path for the given character code at
+     * the given ppem, or {@code null} if hinting does not apply. See
+     * {@link PDVectorFont#getHintedNormalizedPath(int, int)}. The default implementation returns
+     * {@code null}, i.e. no hinting.
+     *
+     * @param code character code in a PDF. Not to be confused with unicode.
+     * @param ppem the pixels-per-em the glyph will be rendered at
+     * @param parent the parent Type0 font.
+     * 
+     * @return the hinted normalized glyph path, or null to use the unhinted path
+     * @throws java.io.IOException if the font could not be read
+     */
+    protected GeneralPath getHintedNormalizedPath(int code, int ppem, PDType0Font parent)
+            throws IOException
+    {
+        return null;
+    }
+
+    /**
      * Returns true if this font contains a glyph for the given character code in a PDF.
      *
      * @param code character code in a PDF. Not to be confused with unicode.
