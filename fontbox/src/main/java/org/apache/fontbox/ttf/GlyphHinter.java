@@ -59,6 +59,7 @@ class GlyphHinter
     private boolean warned;
     private TrueTypeInterpreter interpreter;
     private GaspTable gasp;
+    private int lowestRecPpem;
     private int unitsPerEm;
     private int currentPpem = -1;
 
@@ -251,6 +252,7 @@ class GlyphHinter
         unitsPerEm = font.getUnitsPerEm();
         gasp = font.getGasp();
         tricky = isTrickyFont(font);
+        lowestRecPpem = font.getHeader().getLowestRecPPEM();
 
         interpreter = new TrueTypeInterpreter(maxp.getMaxStackElements(), maxp.getMaxStorage(),
                 maxp.getMaxTwilightPoints(), unitsPerEm);
@@ -360,10 +362,25 @@ class GlyphHinter
             {
                 return null;
             }
+            // Tricky fonts are exempt from both size gates below: they need the bytecode to
+            // assemble/scale their glyphs at every size, so FreeType ignores the gasp grid-fit bit
+            // for them (otherwise the glyph falls back to its raw, unassembled outline at small
+            // ppem - e.g. MingLiU below 9ppem / low zoom), and MingLiU/PMingLiU/DFKaiShu declare
+            // lowestRecPPEM 25 like the bitmap-strike fonts even though their outlines are only
+            // readable *with* the bytecode.
+            //
+            // head.lowestRecPPEM is the vendor's "smallest readable size in pixels" for the
+            // outlines. Fonts that ship bitmap strikes for small sizes (MS Mincho/Gothic say 25) set
+            // it above the sizes the bitmaps cover; their instructions were never meant to run there,
+            // and doing so under grayscale forces every thin stroke to a full pixel. Text fonts
+            // without strikes sit at 6-9, so this never fires for them.
+            if (!tricky && ppem < lowestRecPpem)
+            {
+                return null;
+            }
             // gasp gate: if a gasp table is present and does not request grid-fitting here, skip.
-            // Tricky fonts are exempt: they need the bytecode to assemble/scale their glyphs at every
-            // size, so FreeType ignores the gasp grid-fit bit for them (otherwise the glyph falls back
-            // to its raw, unassembled outline at small ppem - e.g. MingLiU below 9ppem / low zoom).
+            // (GRIDFIT without DOGRAY is deliberately NOT treated as "do not hint": Arial and
+            // Liberation flag 9-17ppem that way, so it would switch hinting off for body text.)
             if (!tricky && gasp != null && !gasp.isGridFit(ppem))
             {
                 return null;
